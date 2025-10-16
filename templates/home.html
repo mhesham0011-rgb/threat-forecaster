@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<p>
+<body>
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="p-5 mb-4 bg-light rounded-3">
+    <div class="container-fluid py-5 text-center">
+      <h1 class="display-5 fw-bold">Welcome to Threat Forecaster</h1>
+      <p class="fs-4">From Reactive Chaos To Proactive Control</p>
+
+      {% if user.is_authenticated %}
+        <p>You are logged in as {{ user.username }}.</p>
+        <a href="{% url 'dashboard' %}" class="btn btn-primary btn-lg">Go to Dashboard</a>
+      {% else %}
+        <p>You are not logged in.</p>
+        <a href="{% url 'login' %}" class="btn btn-primary btn-lg">Login</a>
+        <a href="{% url 'signup' %}" class="btn btn-secondary btn-lg">Sign Up</a>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}
+</body>
+</html>

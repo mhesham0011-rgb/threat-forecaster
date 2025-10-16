@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+    {% extends 'base.html' %}
+    {% block content %}
+        <h2>Your Technology Profile</h2>
+        <p>Select the technologies you use so we can provide relevant threat intelligence.</p>
+
+        <form method="post">
+            {% csrf_token %}
+            <h4>Select Your Technologies:</h4>
+
+            {% for tech in all_technologies %}
+                <div>
+                    <input
+                        type="chechbox"
+                        name="technologies"
+                        value="{{ tech.id }}"
+                        id="tech-{{ tech.id }}"
+                        {% if tech in user_technologies %}checked{% endif %}>
+                <label for="tehc-{{ tech.id }}">{{ tech.name }}</label>
+                </div>
+            {% endfor %}
+
+            <br>
+            <button type="submit">Save Profile</button>
+        </form>
+    {% endblock %}
+</body>
+</html>

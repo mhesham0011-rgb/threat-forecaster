@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="row justify-content-center">
+    <div class="col-md-10 col-lg-8">
+      <h2 class="mb-4">Your Threat Dashboard</h2>
+      <p class="lead mb-4">The following potential threats have been identified based on your technology profile.</p>
+
+      {% for alert in alerts %}
+        <div class="card mb-3">
+          <div class="card-header">
+            {{ alert.vulnerability_name }}
+          </div>
+          <div class="card-body">
+            <p class="card-text">{{ alert.description }}</p>
+          </div>
+          <div class="card-footer text-muted">
+            <small>Found on: {{ alert.date_found|date:"F j, Y" }}</small>
+          </div>
+        </div>
+      {% empty %}
+        <div class="alert alert-info" role="alert">
+          No threats found for your profile yet. The system updates periodically.
+        </div>
+      {% endfor %}
+
+      <div class="mt-4 text-center">
+        <a href="{% url 'tech_profile' %}" class="btn btn-secondary">Edit Your Tech Profile</a>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+</body>
+</html>
