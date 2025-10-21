@@ -1,19 +1,42 @@
 {% load static %}
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Threat Forecaster</title>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Threat Forecaster{% endblock %}</title>
 
-    <link href="{% static 'css/bootstrap.min.css' %}" rel="stylesheet">
+  <!-- Bootstrap core + your overrides -->
+  <link href="{% static 'css/bootstrap.min.css' %}" rel="stylesheet">
+  <link href="{% static 'css/style.css' %}" rel="stylesheet">
+</head>
+<body class="bg-dark text-light">
 
-  </head>
-  <body>
+<nav class="navbar">
+  <div class="navbar-container">
+    <a class="navbar-brand" href="{% url 'home' %}">Threat Forecaster</a>
+    <ul class="navbar-nav ms-auto">   <!-- this makes it horizontal -->
+      {% if user.is_authenticated %}
+        <li class="nav-item"><a class="nav-link" href="{% url 'dashboard' %}">Dashboard</a></li>
+        <li class="nav-item"><a class="nav-link" href="{% url 'ioc:index' %}">IOCs</a></li>
+        <li class="nav-item"><a class="nav-link" href="{% url 'cases:index' %}">Cases</a></li>
+        <li class="nav-item"><a class="nav-link" href="{% url 'intel:index' %}">Intel</a></li>
+        <li class="nav-item"><a class="nav-link" href="{% url 'audit:index' %}">Audit</a></li>
+        <li class="nav-item"><a class="nav-link" href="{% url 'taxonomy:index' %}">Taxonomy</a></li>
+        <li class="nav-item"><a class="nav-link text-danger" href="{% url 'logout' %}">Logout</a></li>
+      {% else %}
+        <li class="nav-item"><a class="nav-link" href="{% url 'login' %}">Login</a></li>
+        <li class="nav-item"><a class="nav-link" href="{% url 'accounts:signup' %}">Sign Up</a></li>
+      {% endif %}
+    </ul>
+  </div>
+</nav>
 
-    {% block content %}
-    {% endblock %}
+<main class="container py-4">
+  {% block content %}{% endblock %}
+</main>
 
-    <script src="{% static 'js/bootstrap.bundle.min.js' %}"></script>
-  </body>
+<script src="{% static 'js/bootstrap.bundle.min.js' %}"></script>
+</body>
 </html>
+

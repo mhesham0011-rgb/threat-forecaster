@@ -22,8 +22,8 @@ environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 
 SECRET_KEY = env('DJANGO_SECRET_KEY')
 DEBUG = env.bool('DJANGO_DEBUG', False)
-ALLOWED_HOSTS = env.list('DJANGO_ALLOWED_HOSTS')
-
+ALLOWED_HOSTS = env.list('DJANGO_ALLOWED_HOSTS', default=["localhost","127.0.0.1"])
+CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -34,11 +34,7 @@ SECRET_KEY = 'django-insecure-v4cd@l#=ospoewv4hostz)=$@g@8qlo9dxo3qmj!wg2wxm&cq4
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
-
-
 # Application definition
-
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -57,6 +53,7 @@ INSTALLED_APPS = [
     'apps.audit',
     'apps.intel',
     'apps.taxonomy',
+    'apps.accounts',
 ]
 
 AUTHENTICATION_BACKENDS = (
@@ -79,8 +76,7 @@ ROOT_URLCONF = 'ThreatForecaster.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [os.path.join(BASE_DIR, 'templates')]
-        ,
+        'DIRS': [BASE_DIR, 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -139,13 +135,22 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = '/static/'
+STATIC_URL = "/static/"
 
-# This is for the 'collectstatic' command in production
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+# This tells teh dev server where to find your static folder
+STATICFILES_DIRS = [BASE_DIR / "static"]
 
-# This tells the dev server where to find your static folder
-STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
+# Where Django COLLECTS static files for production
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# Media
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+STATICFILES_FINDERS = [
+	"django.contrib.staticfiles.finders.FileSystemFinder",
+	"django.contrib.staticfiles.finders.AppDirectoriesFinder",
+]
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -157,6 +162,7 @@ LOGOUT_REDIRECT_URL = '/'    # Redirect to homepage after logout
 
 SECURE_HSTS_SECONDS = 31536000
 SECURE_SSL_REDIRECT = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"

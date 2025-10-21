@@ -20,7 +20,7 @@
       {% else %}
         <p>You are not logged in.</p>
         <a href="{% url 'login' %}" class="btn btn-primary btn-lg">Login</a>
-        <a href="{% url 'signup' %}" class="btn btn-secondary btn-lg">Sign Up</a>
+        <a href="{% url 'accounts:signup' %}" class="btn btn-secondary btn-lg">Sign Up</a>
       {% endif %}
     </div>
   </div>
