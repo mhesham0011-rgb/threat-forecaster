@@ -1,30 +1,144 @@
-# Python
+###############################################
+# 🧠 THREAT FORECASTER .gitignore TEMPLATE
+# Django + Gunicorn + Docker + Ubuntu Server
+###############################################
+
+### PYTHON ###
 __pycache__/
 *.py[cod]
-*.sqlite3
-*.log
+*$py.class
+*.pyo
+*.pyd
+*.so
 
-# Environment
+### DJANGO ###
+# Databases
+db.sqlite3
+*.sqlite3
+
+# Django cache / sessions
+*.log
+*.pot
+*.pyc
+*.mo
+*.pid
+*.seed
+*.json
+*.xml
+
+# Django-generated static/media files
+media/
+staticfiles/
+static_cdn/
+static_root/
+collectstatic/
+uploads/
+
+# Migrations (optional, uncomment if you don’t want migrations in repo)
+#migrations/
+
+### ENVIRONMENTS ###
 .env
+*.env
+.env.*
 .venv/
 venv/
 ENV/
-*.env
+env/
+*.bak
+*.secret
+*.key
 
-# Django
-db.sqlite3
-media/
-staticfiles/
+# Python virtual environment (server)
+bin/
+include/
+lib/
+lib64/
+pyvenv.cfg
+pip-selfcheck.json
 
-# OS / IDE
+### OS / EDITORS ###
 .DS_Store
 *.swp
-*.bak
 *.tmp
-*.idea/
+*.bak
+*.orig
+Thumbs.db
+ehthumbs.db
+*.sublime-project
+*.sublime-workspace
 .vscode/
+.idea/
 
-# Docker
+### LOGS ###
+logs/
+*.log
+*.out
+*.err
+gunicorn-access.log
+gunicorn-error.log
+celerybeat-schedule
+celerybeat.pid
+
+### DOCKER ###
+# Docker build artifacts
 *.pid
 *.sock
 *.tar
+*.img
+*.tmp
+*.bak
+.dockerignore
+Dockerfile~
+docker-compose.override.yml
+.docker/
+docker/
+docker_cache/
+
+### SUPERVISOR / GUNICORN / NGINX ###
+supervisord.log
+supervisord.pid
+*.pid
+*.sock
+*.conf~
+nginx/*.conf~
+nginx/conf.d/*.conf~
+
+### BACKUPS / TEMP ###
+backup/
+*.bak
+tmp/
+temp/
+__temp__/
+*.tar.gz
+*.zip
+*.gz
+
+### SECRETS / CREDENTIALS ###
+secrets/
+keys/
+certs/
+*.pem
+*.crt
+*.csr
+*.key
+*.p12
+*.der
+
+### PROJECT SPECIFIC ###
+# Threat Forecaster internal folders
+.wazuh/
+.alerts/
+.cache/
+.idea/
+test_results/
+local_settings.py
+config.json
+celerybeat-schedule.db
+.env.backup
+scripts/
+*.rdb
+
+###############################################
+# END OF FILE
+###############################################
