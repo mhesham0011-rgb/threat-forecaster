@@ -22,8 +22,8 @@ environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 
 SECRET_KEY = env('DJANGO_SECRET_KEY')
 DEBUG = env.bool('DJANGO_DEBUG', False)
-ALLOWED_HOSTS = env.list('DJANGO_ALLOWED_HOSTS', default=["localhost","127.0.0.1"])
-CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
+ALLOWED_HOSTS = env.list('DJANGO_ALLOWED_HOSTS', default=["localhost","127.0.0.1", "threatforecaster.com","www.threatforecaster.com","141.145.146.16"])
+CSRF_TRUSTED_ORIGINS = ["https://threatforecaster.com"]
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'simple_history',
     'guardian',
+    'apps.dashboard',
     'apps.ioc',
     'apps.cases',
     'apps.audit',
@@ -69,6 +70,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'apps.audit.middleware.AuditMiddleware',
+    'apps.audit.middleware.ClientIPMiddleware',
 ]
 
 ROOT_URLCONF = 'ThreatForecaster.urls'
@@ -84,6 +87,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'apps.core.context.globals',
             ],
         },
     },
@@ -158,7 +162,7 @@ STATICFILES_FINDERS = [
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 LOGIN_REDIRECT_URL = '/'    # Redirect to homepage after login
-LOGOUT_REDIRECT_URL = '/'    # Redirect to homepage after logout
+LOGOUT_REDIRECT_URL = 'home'    # Redirect to homepage after logout
 
 SECURE_HSTS_SECONDS = 31536000
 SECURE_SSL_REDIRECT = True

@@ -1,6 +1,330 @@
 {% extends "base.html" %}
 {% block title %}Cases{% endblock %}
+
 {% block content %}
-  <h1>Previous Cases</h1>
-  <p>Placeholder. Wire your list/detail views here.</p>
+<div class="container my-4">
+
+  <!-- Header -->
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="h3 mb-0 text-body">Previous Cases</h1>
+    <div class="d-flex gap-2">
+      <div id="case-export-slot"></div>
+      <a href="#" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addCaseModal">+ New Case</a>
+    </div>
+  </div>
+
+  <!-- Table Card -->
+  <div class="card shadow-sm rounded-3">
+    <div class="card-body">
+      <div class="table-responsive">
+        <table id="cases-table" class="table table-hover table-sm align-middle">
+          <thead class="table-light">
+            <tr>
+              <th style="min-width:260px;">Title</th>
+              <th style="min-width:110px;">Severity</th>
+              <th style="min-width:130px;">Status</th>
+              <th style="min-width:160px;">Owner</th>
+              <th style="min-width:160px;">Opened</th>
+              <th style="min-width:160px;">Closed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in object_list %}
+              <tr>
+                <td class="text-break" title="{{ c.summary|default:'' }}">
+                  <a href="#" class="case-link" data-url="{% url 'cases:detail_json' c.id %}">{{ c.title }}</a>
+                </td>
+                <td>
+                  {% if c.severity >= 4 %}
+                    <span class="badge bg-danger">Critical</span>
+                  {% elif c.severity == 3 %}
+                    <span class="badge bg-warning text-dark">High</span>
+                  {% elif c.severity == 2 %}
+                    <span class="badge bg-info text-dark">Moderate</span>
+                  {% else %}
+                    <span class="badge bg-success">Low</span>
+                  {% endif %}
+                </td>
+                <td><span class="badge badge-soft">{{ c.status|title }}</span></td>
+                <td>
+                  {% if c.owner %}
+                    {{ c.owner.get_full_name|default:c.owner.username }}
+                  {% else %}
+                    <span class="text-muted">Unassigned</span>
+                  {% endif %}
+                </td>
+                <td class="text-muted">{{ c.opened_at|date:"Y-m-d H:i" }}</td>
+                <td class="text-muted">{{ c.closed_at|date:"Y-m-d H:i" }}</td>
+              </tr>
+            {% empty %}
+            <tr><td colspan="6" class="text-center text-muted py-4">No cases yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Case Modal -->
+  <div class="modal fade" id="addCaseModal" tabindex="-1" aria-labelledby="addCaseLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="addCaseLabel">Create Case</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+
+        <form id="add-case-form" method="post" action="{% url 'cases:add' %}">
+          {% csrf_token %}
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">Title</label>
+              <input name="title" class="form-control" required>
+            </div>
+
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label">Severity</label>
+                <select name="severity" class="form-select">
+                  <option value="1">Low</option>
+                  <option value="2">Moderate</option>
+                  <option value="3">High</option>
+                  <option value="4">Critical</option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Status</label>
+                <select name="status" class="form-select">
+                  <!-- make sure these values match your model choices -->
+                  <option value="open">Open</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="resolved">Resolved</option>
+                  <option value="closed">Closed</option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Owner (username)</label>
+                <input name="owner" class="form-control" placeholder="e.g., admin" list="userList">
+                <datalist id="userList">
+                  <!-- optionally prefill with usernames in context -->
+                  {% if users %}
+                    {% for u in users %}
+                      <option value="{{ u.username }}">{{ u.username }}</option>
+                    {% endfor %}
+                  {% endif %}
+                </datalist>
+              </div>
+            </div>
+
+            <div class="mt-3">
+              <label class="form-label">Summary</label>
+              <textarea name="summary" rows="3" class="form-control" placeholder="Short summary..."></textarea>
+            </div>
+
+            <div class="row g-3 mt-1">
+              <div class="col-md-6">
+                <label class="form-label">Closed At</label>
+                <input type="datetime-local" name="closed_at" class="form-control">
+              </div>
+            </div>
+
+            <div id="add-case-errors" class="text-danger small mt-2" style="display:none;"></div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Case</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Case Detail Modal -->
+  <div class="modal fade" id="caseDetailModal" tabindex="-1" aria-labelledby="caseDetailLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="caseDetailLabel">Case Details</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <span id="cd-severity" class="badge"></span>
+          <span id="cd-status" class="badge badge-soft"></span>
+          <p>Owner: <strong id="cd-owner"></strong></p>
+          <p>Opened: <span id="cd-opened"></span></p>
+          <p>Closed: <span id="cd-closed"></span></p>
+          <hr>
+          <h6>Summary</h6>
+          <p id="cd-summary"></p>
+          <h6>Related IOCs</h6>
+          <div id="cd-iocs"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+</div>  <!-- /container -->
+
+<!-- DataTables + Buttons init, AJAX create, detail modal -->
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  // --- DataTable init ---
+  const table = $('#cases-table').DataTable({
+    pageLength: 25,
+    order: [[4, 'desc']], // Opened column
+    autoWidth: false,
+    lengthChange: true,
+    searching: true,
+    dom: "lrtip",
+    language: { emptyTable: "No cases yet." },
+    buttons: [
+      { extend: 'csvHtml5',   text: 'Export CSV',   className: 'btn btn-outline-secondary btn-sm', title: 'Cases', exportOptions: { columns: [0,1,2,3,4,5] } },
+      { extend: 'excelHtml5', text: 'Export Excel', className: 'btn btn-outline-secondary btn-sm', title: 'Cases', exportOptions: { columns: [0,1,2,3,4,5] } },
+      { extend: 'print',      text: 'Print',        className: 'btn btn-outline-secondary btn-sm', title: 'Cases', exportOptions: { columns: [0,1,2,3,4,5] } }
+      // If you also load pdfmake, you can add pdfHtml5 here.
+    ],
+    columnDefs: [
+      { orderable: true, targets: [0,1,2,3,4,5] },
+      { className: 'text-nowrap', targets: [1,2,3,4,5] }
+    ],
+  });
+  if ($.fn.dataTable.Buttons) {
+    table.buttons().container().appendTo('#case-export-slot');
+  }
+
+  // --- CSRF helper ---
+  function getCookie(name) {
+    const v = ('; ' + document.cookie).split('; ' + name + '=');
+    if (v.length === 2) return v.pop().split(';').shift();
+  }
+  const csrftoken = getCookie('csrftoken');
+
+  // --- Create Case (AJAX) ---
+  const form = document.getElementById('add-case-form');
+  const errorsBox = document.getElementById('add-case-errors');
+  const modalEl = document.getElementById('addCaseModal');
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorsBox.style.display = 'none';
+
+    const data = new FormData(form);
+    try {
+      const res = await fetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrftoken },
+        body: data
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        errorsBox.innerText = j?.errors ? JSON.stringify(j.errors) : 'Failed to save case.';
+        errorsBox.style.display = 'block';
+        return;
+      }
+      const j = await res.json();
+
+      // add one row (exactly 6 cells)
+      table.row.add([
+        `<a href="#" class="case-link" data-url="${j.detail_url}" title="${(j.summary || '').replace(/"/g,'&quot;')}">${j.title}</a>`,
+        (
+          j.severity_label === 'Critical' ? '<span class="badge bg-danger">Critical</span>' :
+          j.severity_label === 'High'     ? '<span class="badge bg-warning text-dark">High</span>' :
+          j.severity_label === 'Moderate' ? '<span class="badge bg-info text-dark">Moderate</span>' :
+                                            '<span class="badge bg-success">Low</span>'
+        ),
+        `<span class="badge badge-soft">${j.status}</span>`,
+        `${j.owner || '<span class="text-muted">Unassigned</span>'}`,
+        `<span class="text-muted">${j.opened_at}</span>`,
+        `<span class="text-muted">${j.closed_at || ''}</span>`
+      ]).draw(false);
+
+      form.reset();
+      modal.hide();
+    } catch (err) {
+      errorsBox.innerText = 'Network error. Please try again.';
+      errorsBox.style.display = 'block';
+    }
+  });
+</script>
+<script>
+// --- Case Detail modal ---
+const detailModalEl = document.getElementById('caseDetailModal');
+const detailModal = bootstrap.Modal.getOrCreateInstance(detailModalEl);
+
+(function () {
+  // helper for severity badge color
+  function severityBadgeClass(label) {
+    switch (label) {
+      case 'Critical': return 'badge bg-danger';
+      case 'High':     return 'badge bg-warning text-dark';
+      case 'Moderate': return 'badge bg-info text-dark';
+      default:         return 'badge bg-success';
+    }
+  }
+
+  async function openDetail(url) {
+    try {
+      const res = await fetch(url, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      });
+      if (!res.ok) {
+        throw new Error('Failed to fetch case details');
+      }
+
+      const d = await res.json();
+
+      // Fill modal fields
+      document.getElementById('caseDetailLabel').innerText =
+        d.title || 'Case Details';
+
+      const sevEl = document.getElementById('cd-severity');
+      sevEl.className = severityBadgeClass(d.severity_label);
+      sevEl.textContent = d.severity_label || '—';
+
+      document.getElementById('cd-status').textContent =
+        d.status || '—';
+
+      document.getElementById('cd-owner').textContent =
+        d.owner || 'Unassigned';
+
+      document.getElementById('cd-opened').textContent =
+        d.opened_at || '';
+
+      document.getElementById('cd-closed').textContent =
+        d.closed_at || '';
+
+      document.getElementById('cd-summary').textContent =
+        d.summary || '—';
+
+      // if you later add related IOCs to the JSON, render here:
+      document.getElementById('cd-iocs').textContent =
+        d.iocs || '—';
+
+      // show the modal
+      const modalEl = document.getElementById('caseDetailModal');
+      const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+      modal.show();
+
+    } catch (err) {
+      console.error(err);
+      alert('Could not load case details.');
+    }
+  }
+
+  // Click handler for all .case-link anchors (works for new rows too)
+  document.addEventListener('click', function (e) {
+    const link = e.target.closest('.case-link');
+    if (!link) return;
+    e.preventDefault();
+
+    const url = link.dataset.url;
+    if (url) {
+      openDetail(url);
+    }
+  });
+})();
+</script>
 {% endblock %}

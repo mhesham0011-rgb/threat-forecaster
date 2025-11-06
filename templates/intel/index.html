@@ -1,6 +1,229 @@
 {% extends "base.html" %}
-{% block title %}IOC{% endblock %}
+{% load static %}
+{% block title %}Threat Intelligence{% endblock %}
+
 {% block content %}
-  <h1>Intel</h1>
-  <p>Placeholder. Wire your list/detail views here.</p>
+<div class="container my-4">
+
+  <!-- Header -->
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="h3 mb-0 text-body">Threat Intelligence</h1>
+    <div class="d-flex gap-2">
+      <div id="intel-export-slot"></div>
+      <button id="fetch-intel" class="btn btn-outline-secondary btn-sm">Fetch from Sources</button>
+      <a class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addIntelModal">+ Add Intel</a>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="card shadow-sm rounded-3">
+    <div class="card-body">
+      <div class="table-responsive">
+        <table id="intel-table" class="table table-hover table-sm align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>Indicator</th>
+              <th>Type</th>
+              <th>Severity</th>
+              <th>Confidence</th>
+              <th>Source</th>
+              <th>First Seen</th>
+              <th>Last Seen</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for intel in object_list %}
+              <tr>
+                <td class="text-break">{{ intel.value }}</td>
+                <td>{{ intel.indicator_type }}</td>
+                <td>
+                  {% if intel.severity == 4 %}
+                    <span class="badge bg-danger">Critical</span>
+                  {% elif intel.severity == 3 %}
+                    <span class="badge bg-warning text-dark">High</span>
+                  {% elif intel.severity == 2 %}
+                    <span class="badge bg-info text-dark">Moderate</span>
+                  {% else %}
+                    <span class="badge bg-success">Low</span>
+                  {% endif %}
+                </td>
+                <td>{{ intel.confidence }}</td>
+                <td>{{ intel.source }}</td>
+                <td class="text-muted">{{ intel.first_seen|date:"Y-m-d H:i" }}</td>
+                <td class="text-muted">{{ intel.last_seen|date:"Y-m-d H:i" }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="7" class="text-center text-muted py-4">No threat intel data yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Add Intel -->
+  <div class="modal fade" id="addIntelModal" tabindex="-1" aria-labelledby="addIntelLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="addIntelLabel">Add Intel</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form id="add-intel-form" method="post" action="{% url 'intel:add' %}">
+          {% csrf_token %}
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">Indicator Value</label>
+              <input name="value" class="form-control" placeholder="e.g., 45.76.12.90 or malicious.com" required>
+            </div>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label">Type</label>
+                <select name="indicator_type" class="form-select" required>
+                  <option>IPv4</option>
+                  <option>Domain</option>
+                  <option>URL</option>
+                  <option>File Hash</option>
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Severity</label>
+                <select name="severity" class="form-select">
+                  <option value="1">Low</option>
+                  <option value="2">Moderate</option>
+                  <option value="3">High</option>
+                  <option value="4">Critical</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="row g-3 mt-2">
+              <div class="col-md-6">
+                <label class="form-label">Confidence</label>
+                <select name="confidence" class="form-select">
+                  <option>Low</option>
+                  <option>Medium</option>
+                  <option>High</option>
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Source</label>
+                <input name="source" class="form-control" placeholder="e.g., VirusTotal, AbuseIPDB">
+              </div>
+            </div>
+
+            <div class="row g-3 mt-2">
+              <div class="col-md-6">
+                <label class="form-label">First Seen</label>
+                <input type="datetime-local" name="first_seen" class="form-control">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Last Seen</label>
+                <input type="datetime-local" name="last_seen" class="form-control">
+              </div>
+            </div>
+
+            <div id="add-intel-errors" class="text-danger small mt-2" style="display:none;"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Intel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const t = $('#intel-table').DataTable({
+    pageLength: 25,
+    order: [[5, 'desc']],
+    autoWidth: false,
+    lengthChange: true,
+    searching: true,
+    dom: "lrtip",
+    buttons: [
+      { extend: 'csvHtml5', text: 'Export CSV', className: 'btn btn-outline-secondary btn-sm', title: 'Intel Data' },
+      { extend: 'excelHtml5', text: 'Export Excel', className: 'btn btn-outline-secondary btn-sm', title: 'Intel Data' },
+      { extend: 'print', text: 'Print', className: 'btn btn-outline-secondary btn-sm', title: 'Threat Intelligence' }
+    ],
+    columnDefs: [
+      { orderable: true, targets: [0,1,2,3,4,5,6] },
+      { className: 'text-nowrap', targets: [1,2,3,4,5,6] }
+    ]
+  });
+  if ($.fn.dataTable.Buttons) {
+    t.buttons().container().appendTo('#intel-export-slot');
+  }
+
+  // Submit form via AJAX
+  const form = document.getElementById('add-intel-form');
+  const errorsBox = document.getElementById('add-intel-errors');
+  const modalEl = document.getElementById('addIntelModal');
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorsBox.style.display = 'none';
+
+    const data = new FormData(form);
+    try {
+      const res = await fetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: data
+      });
+      if (!res.ok) {
+        const j = await res.text();
+        errorsBox.innerText = j;
+        errorsBox.style.display = 'block';
+        return;
+      }
+      const j = await res.json();
+      t.row.add([
+        j.value,
+        j.indicator_type,
+        `<span class="badge bg-${j.severity_label === 'Critical' ? 'danger' : j.severity_label === 'High' ? 'warning text-dark' : j.severity_label === 'Moderate' ? 'info text-dark' : 'success'}">${j.severity_label}</span>`,
+        j.confidence || '',
+        j.source || '',
+        j.first_seen || '',
+        j.last_seen || ''
+      ]).draw(false);
+
+      form.reset();
+      modal.hide();
+    } catch (err) {
+      errorsBox.innerText = 'Network error. Please try again.';
+      errorsBox.style.display = 'block';
+    }
+  });
+
+  // Fetch from Sources button
+  document.getElementById("fetch-intel").addEventListener("click", async () => {
+    try {
+      const res = await fetch("{% url 'intel:fetch' %}", { headers: { "X-Requested-With": "XMLHttpRequest" } });
+      if (!res.ok) { alert("Fetch failed."); return; }
+      const data = await res.json();
+      
+      data.added.forEach(row => {
+        t.row.add([
+          row.value,
+          row.indicator_type,
+          `<span class="badge badge-soft">${row.severity_label}</span>`,
+          row.confidence || '',
+          row.source || '',
+          row.first_seen || '',
+          row.last_seen || ''
+        ]).draw(false);
+      });
+    } catch (err) {
+      alert("Error fetching intel.");
+    }
+  });
+});
+</script>
+
 {% endblock %}

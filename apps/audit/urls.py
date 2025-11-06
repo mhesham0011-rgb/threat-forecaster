@@ -1,8 +1,11 @@
 from django.urls import path
-from django.contrib.auth.decorators import login_required
-from django.views.generic import TemplateView
+from .views import AuditListView, export_csv
 
 app_name = "audit"
+
 urlpatterns = [
-	path("", login_required(TemplateView.as_view(template_name="audit/index.html")), name="index"),
+    path("", AuditListView.as_view(), name="index"),
+    path("list.json/", AuditListView.as_view(), name="list_json"),
+    path("<int:pk>/json/", AuditListView.as_view(), name="detail_json"),
+    path("export-csv", export_csv, name="export_csv"),
 ]

@@ -1,0 +1,189 @@
+# apps/intel/views.py
+import os
+import requests
+from django.shortcuts import render
+from django.http import JsonResponse, HttpResponseBadRequest
+from django.utils.timezone import make_aware, now
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
+from django.views.generic import ListView
+from datetime import datetime
+from django.views.decorators.http import require_GET
+from .models import IntelItem
+
+
+def severity_label(num):
+    """
+    Turn numeric severity (1-4) into a human label.
+    """
+    num = int(num)
+    return (
+        "Critical" if num == 4 else
+        "High" if num == 3 else
+        "Moderate" if num == 2 else
+        "Low"
+    )
+
+
+class IntelListView(ListView):
+    """
+    Show all intel in a table.
+    Uses template: templates/intel/index.html
+    Context: object_list = queryset of IntelItem
+    """
+    model = IntelItem
+    template_name = "intel/index.html"
+    context_object_name = "object_list"
+    ordering = ["-first_seen"]
+
+    # force auth like you did with @login_required before
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            # redirect to login if anonymous
+            from django.contrib.auth.views import redirect_to_login
+            return redirect_to_login(request.get_full_path())
+        return super().dispatch(request, *args, **kwargs)
+
+
+@require_POST
+@login_required
+def intel_create(request):
+    """
+    Handle POST from the Add Intel modal.
+    If it's an AJAX request, return JSON for the new row.
+    Otherwise, just return 400.
+    """
+
+    value = request.POST.get('value', '').strip()
+    indicator_type = request.POST.get('indicator_type', '').strip()
+    severity_raw = request.POST.get('severity', '').strip()
+    confidence = request.POST.get('confidence', '').strip()
+    source = request.POST.get('source', '').strip()
+    first_seen_raw = request.POST.get('first_seen', '').strip()
+    last_seen_raw = request.POST.get('last_seen', '').strip()
+
+    # minimal validation
+    if not value or not indicator_type:
+        return HttpResponseBadRequest("Indicator value and type are required.")
+
+    # severity is stored as int (default 1)
+    try:
+        severity = int(severity_raw or "1")
+    except ValueError:
+        severity = 1
+
+    # parse datetimes (HTML datetime-local comes like "2025-10-31T08:41")
+    # we convert to aware datetimes in server timezone
+    def parse_dt(dt_str):
+        if not dt_str:
+            return None
+        try:
+            # assume it's local but naive ->  make_aware
+            naive = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M")
+            return make_aware(naive, timezone.get_current_timezone())
+        except Exception:
+            return None
+
+    first_seen = parse_dt(first_seen_raw) or timezone.now()
+    last_seen = parse_dt(last_seen_raw) or timezone.now()
+
+    # save to DB
+    item = IntelItem.objects.create(
+        value=value,
+        indicator_type=indicator_type,
+        severity=severity,
+        confidence=confidence,
+        source=source,
+        first_seen=first_seen,
+        last_seen=last_seen,
+        created_by=request.user,
+    )
+
+    # respond
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return JsonResponse({
+            "id": item.id,
+            "value": item.value,
+            "indicator_type": item.indicator_type,
+            "severity": item.severity,
+            "severity_label": severity_label(item.severity),
+            "confidence": item.confidence or "",
+            "source": item.source or "",
+            "first_seen": item.first_seen.strftime("%Y-%m-%d %H:%M") if item.first_seen else "",
+            "last_seen": item.last_seen.strftime("%Y-%m-%d %H:%M") if item.last_seen else "",
+        })
+    else:
+        # non-AJAX fallback (rare for you)
+        return HttpResponseBadRequest("Only AJAX supported for now.")
+
+
+@login_required
+def intel_detail_json(request, pk):
+    """
+    Optional: return JSON for one intel item.
+    Useful later for a 'view details' modal.
+    """
+    try:
+        item = IntelItem.objects.get(pk=pk)
+    except IntelItem.DoesNotExist:
+        return HttpResponseBadRequest("Not found")
+
+    return JsonResponse({
+        "id": item.id,
+        "value": item.value,
+        "indicator_type": item.indicator_type,
+        "severity": item.severity,
+        "severity_label": severity_label(item.severity),
+        "confidence": item.confidence or "",
+        "source": item.source or "",
+        "first_seen": item.first_seen.strftime("%Y-%m-%d %H:%M") if item.first_seen else "",
+        "last_seen": item.last_seen.strftime("%Y-%m-%d %H:%M") if item.last_seen else "",
+        "created_by": item.created_by.username if item.created_by else "—",
+        "created_at": item.created_at.strftime("%Y-%m-%d %H:%M") if hasattr(item, "created_at") and item.created_at else "",
+    })
+
+@require_GET
+@login_required
+def fetch_intel_sources(request):
+    """
+    Fake external threat intel fetch.
+    This is where VirusTotal, AbuseIPDB, etc. will be called here.
+    """
+
+    # Example simulated intel hits you'd get from external feeds/queries
+    sample = [
+        {
+            "value": "45.76.123.22",
+            "indicator_type": "ip",
+            "severity": 3,
+            "severity_label": "High",
+            "confidence": "High",
+            "source": "AbuseIPDB",
+            "first_seen": "2025-10-30 11:21",
+            "last_seen": "2025-10-31 04:40",
+        },
+        {
+            "value": "cdn-malware.example.com",
+            "indicator_type": "domain",
+            "severity": 2,
+            "severity_label": "Moderate",
+            "confidence": "Medium",
+            "source": "VirusTotal",
+            "first_seen": "2025-10-29 19:08",
+            "last_seen": "2025-10-31 04:41",
+        },
+        {
+            "value": "9f37a0c4e2b9c8... (sha256)",
+            "indicator_type": "hash",
+            "severity": 4,
+            "severity_label": "Critical",
+            "confidence": "High",
+            "source": "MalwareBazaar",
+            "first_seen": "2025-10-31 03:15",
+            "last_seen": "2025-10-31 04:42",
+        },
+    ]
+
+    return JsonResponse({"added": sample})
+
+

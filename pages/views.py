@@ -2,6 +2,8 @@ from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from .models import Technology, UserProfile
 from .models import ThreatAlert
+from django.contrib.auth import logout
+from django.shortcuts import redirect
 
 @login_required
 def tech_profile(request):
@@ -35,3 +37,7 @@ def dashboard(request):
         'alerts': alerts,
     }
     return render(request, 'dashboard.html', context)
+
+def logout_view(request):
+	logout(request)
+	return redirect('home')

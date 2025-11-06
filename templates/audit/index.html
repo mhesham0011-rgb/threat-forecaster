@@ -1,6 +1,164 @@
 {% extends "base.html" %}
-{% block title %}Audit{% endblock %}
 {% block content %}
-  <h1>Audit</h1>
-  <p>Placeholder. Wire your list/detail views here.</p>
+<div class="container py-4">
+  <h1 class="mb-3">Audit</h1>
+
+  <div class="d-flex gap-2 mb-3">
+    <input id="q" class="form-control" placeholder="Search message, action or target" style="max-width:360px">
+    <select id="level" class="form-select" style="max-width:160px">
+      <option value="">All levels</option>
+      <option value="info">Info</option>
+      <option value="warning">Warning</option>
+      <option value="error">Error</option>
+      <option value="critical">Critical</option>
+    </select>
+    <a id="exportCsvBtn" class="btn btn-outline-primary" href="?">Export CSV</a>
+  </div>
+
+  <table id="audit-table" class="table table-striped table-hover align-middle">
+    <thead>
+      <tr>
+        <th style="min-width:135px;">Time</th>
+        <th style="min-width:90px;">Level</th>
+        <th style="min-width:120px;">Actor</th>
+        <th style="min-width:160px;">Action</th>
+        <th>Target</th>
+        <th style="min-width:120px;">IP</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for e in entries %}
+    <tr>
+      <td>{{ e.timestamp|date:"Y-m-d H:i:s" }}</td>
+      <td>
+        {% if e.user %}
+          {{ e.user.username }}
+        {% else %}
+          <em>system</em>
+        {% endif %}
+      </td>
+      <td>{{ e.action }}</td>
+      <td>
+        {% if e.target_type %}{{ e.target_type }}{% endif %}
+        {% if e.target_id %}#{{ e.target_id }}{% endif %}
+      </td>
+      <td>{{ e.message }}</td>
+      <td>{{ e.ip_address|default:"" }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="6" class="text-center text-muted">No audit entries found.</td></tr>
+    {% endfor %}
+    </tbody>
+
+  </table>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal fade" id="auditDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Audit Entry</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <dl class="row small">
+          <dt class="col-sm-3">Time</dt><dd class="col-sm-9" id="d-time"></dd>
+          <dt class="col-sm-3">Actor</dt><dd class="col-sm-9" id="d-actor"></dd>
+          <dt class="col-sm-3">Level</dt><dd class="col-sm-9" id="d-level"></dd>
+          <dt class="col-sm-3">Action</dt><dd class="col-sm-9" id="d-action"></dd>
+          <dt class="col-sm-3">Target</dt><dd class="col-sm-9" id="d-target"></dd>
+          <dt class="col-sm-3">IP / UA</dt><dd class="col-sm-9" id="d-ipua"></dd>
+          <dt class="col-sm-3">Message</dt><dd class="col-sm-9" id="d-message"></dd>
+          <dt class="col-sm-3">Extra</dt><dd class="col-sm-9"><pre class="mb-0" id="d-extra" style="white-space:pre-wrap;"></pre></dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const tableBody = document.querySelector('#audit-table tbody');
+  const q = document.getElementById('q');
+  const level = document.getElementById('level');
+  const modalEl = document.getElementById('auditDetailModal');
+  const modal = new bootstrap.Modal(modalEl);
+
+  let page = 1, pages = 1;
+
+  async function load() {
+    const params = new URLSearchParams({
+      page: page, size: 25,
+      q: q.value.trim(), level: level.value
+    });
+    const res = await fetch("{% url 'audit:list_json' %}?"+params.toString(),
+      { headers: {'X-Requested-With':'XMLHttpRequest'}});
+    if (!res.ok) { alert('Failed to load'); return; }
+    const data = await res.json();
+    pages = data.pages;
+    tableBody.innerHTML = '';
+    data.rows.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${r.time}</td>
+        <td><span class="badge ${badgeClass(r.level)}">${r.level}</span></td>
+        <td>${r.actor}</td>
+        <td><a href="#" data-id="${r.id}" class="audit-link">${r.action}</a></td>
+        <td>${r.target || ''}</td>
+        <td>${r.ip || ''}</td>`;
+      tableBody.appendChild(tr);
+    });
+  }
+
+  function badgeClass(level) {
+    switch ((level||'').toLowerCase()) {
+      case 'critical': return 'bg-danger';
+      case 'error': return 'bg-danger-subtle text-danger-emphasis';
+      case 'warning': return 'bg-warning text-dark';
+      default: return 'bg-secondary';
+    }
+  }
+
+  document.addEventListener('click', async (e) => {
+    const a = e.target.closest('.audit-link');
+    if (!a) return;
+    e.preventDefault();
+    const id = a.dataset.id;
+    const res = await fetch("{% url 'audit:detail_json' 0 %}".replace('/0/','/'+id+'/'),
+      { headers: {'X-Requested-With':'XMLHttpRequest'}});
+    if (!res.ok) { alert('Could not load entry'); return; }
+    const d = await res.json();
+    document.getElementById('d-time').textContent = d.time;
+    document.getElementById('d-actor').textContent = d.actor;
+    document.getElementById('d-level').textContent = d.level;
+    document.getElementById('d-action').textContent = d.action;
+    document.getElementById('d-target').textContent = (d.target_repr || (d.target_type+':'+d.target_id));
+    document.getElementById('d-ipua').textContent = (d.ip || '') + (d.ua ? ' – ' + d.ua : '');
+    document.getElementById('d-message').textContent = d.message || '';
+    document.getElementById('d-extra').textContent = JSON.stringify(d.extra || {}, null, 2);
+    modal.show();
+  });
+
+  q.addEventListener('change', () => { page=1; load(); });
+  level.addEventListener('change', () => { page=1; load(); });
+
+  const btn = document.getElementById('exportCsvBtn');
+  const formToQuery = () => {
+    const q = document.getElementById('auditSearch').value || '';
+    const level = document.getElementById('auditLevel').value || '';
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (level) params.set('level', level);
+    return params.toString();
+  };
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    const qs = formToQuery();
+    window.location = "/audit/export.csv" + (qs ? ("?" + qs) : "");
+  });
+
+  load();
+})();
+</script>
 {% endblock %}

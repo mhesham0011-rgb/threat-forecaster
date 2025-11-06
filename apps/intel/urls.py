@@ -1,8 +1,11 @@
 from django.urls import path
-from django.contrib.auth.decorators import login_required
-from django.views.generic import TemplateView
+from . import views
 
 app_name = "intel"
+
 urlpatterns = [
-	path("", login_required(TemplateView.as_view(template_name="intel/index.html")), name="index"),
+    path("", views.IntelListView.as_view(), name="index"),
+    path("add/", views.intel_create, name="add"),
+    path("<int:pk>/json/", views.intel_detail_json, name="detail_json"),
+    path("fetch/", views.fetch_intel_sources, name="fetch"),
 ]

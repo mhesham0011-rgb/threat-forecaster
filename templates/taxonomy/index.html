@@ -1,6 +1,182 @@
 {% extends "base.html" %}
-{% block title %}Taxonomy{% endblock %}
+{% load static %}
 {% block content %}
-  <h1>Taxonomy</h1>
-  <p>Placeholder. Wire your list/detail views here.</p>
+<div class="container py-4">
+  <h2 class="mb-3">Taxonomy</h2>
+
+  <form class="row g-2 align-items-center mb-3" id="filter-form" method="get">
+    <div class="col-auto">
+      <select name="vocab" id="vocab" class="form-select">
+        {% for v,label in vocabs %}
+          <option value="{{ v }}" {% if v == current_vocab %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <input name="q" id="q" class="form-control" placeholder="Search key or label">
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-primary" type="submit">Apply</button>
+      <button class="btn btn-success" type="button" id="btn-add">+ Add</button>
+    </div>
+  </form>
+
+  <div class="table-responsive">
+    <table class="table table-sm align-middle" id="tax-table">
+      <thead>
+        <tr>
+          <th style="width: 18%">Key</th>
+          <th>Label</th>
+          <th style="width: 10%">Order</th>
+          <th style="width: 14%">Color</th>
+          <th style="width: 10%">Enabled</th>
+          <th style="width: 16%">Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal fade" id="termModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form class="modal-content" id="termForm">
+      <div class="modal-header">
+        <h5 class="modal-title">Taxonomy Term</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" name="id" id="term-id">
+        <input type="hidden" name="vocab" id="term-vocab" value="{{ current_vocab }}">
+        <div class="mb-2">
+          <label class="form-label">Key</label>
+          <input name="key" id="term-key" class="form-control" required>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Label</label>
+          <input name="label" id="term-label" class="form-control" required>
+        </div>
+        <div class="row">
+          <div class="col-6 mb-2">
+            <label class="form-label">Order</label>
+            <input name="order" id="term-order" type="number" class="form-control" value="0">
+          </div>
+          <div class="col-6 mb-2">
+            <label class="form-label">Color (Bootstrap)</label>
+            <input name="color" id="term-color" class="form-control" placeholder="danger / warning / info / ...">
+          </div>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="term-enabled" name="enabled" checked>
+          <label class="form-check-label" for="term-enabled">Enabled</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal" type="button">Cancel</button>
+        <button class="btn btn-primary" type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function() {
+  const tableBody = document.querySelector("#tax-table tbody");
+  const vocabSel  = document.getElementById("vocab");
+  const queryInp  = document.getElementById("q");
+  const addBtn    = document.getElementById("btn-add");
+
+  async function loadRows() {
+    const params = new URLSearchParams({
+      vocab: vocabSel.value,
+      q: queryInp.value || ""
+    });
+    const res = await fetch("{% url 'taxonomy:list' %}?" + params.toString(), {headers:{'X-Requested-With':'XMLHttpRequest'}});
+    const json = await res.json();
+    tableBody.innerHTML = "";
+    json.rows.forEach(r => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><code>${r.key}</code></td>
+        <td>
+          ${r.color ? `<span class="badge bg-${r.color} me-1">&nbsp;</span>` : ""}
+          ${r.label}
+        </td>
+        <td>${r.order}</td>
+        <td>${r.color || ""}</td>
+        <td>${r.enabled ? "Yes" : "No"}</td>
+        <td>
+          <button class="btn btn-sm btn-outline-primary me-1" data-edit='${JSON.stringify(r)}'>Edit</button>
+          <button class="btn btn-sm btn-outline-danger" data-del='${r.id}'>Delete</button>
+        </td>`;
+      tableBody.appendChild(tr);
+    });
+  }
+
+  // open modal for add
+  addBtn.addEventListener("click", () => {
+    document.getElementById("termForm").reset();
+    document.getElementById("term-id").value = "";
+    document.getElementById("term-vocab").value = vocabSel.value;
+    new bootstrap.Modal(document.getElementById("termModal")).show();
+  });
+
+  // edit/delete handlers
+  tableBody.addEventListener("click", (e) => {
+    const edit = e.target.getAttribute("data-edit");
+    const del  = e.target.getAttribute("data-del");
+    if (edit) {
+      const r = JSON.parse(edit);
+      document.getElementById("term-id").value = r.id;
+      document.getElementById("term-vocab").value = vocabSel.value;
+      document.getElementById("term-key").value = r.key;
+      document.getElementById("term-label").value = r.label;
+      document.getElementById("term-order").value = r.order;
+      document.getElementById("term-color").value = r.color || "";
+      document.getElementById("term-enabled").checked = !!r.enabled;
+      new bootstrap.Modal(document.getElementById("termModal")).show();
+    } else if (del) {
+      if (confirm("Delete this term?")) {
+        const form = new FormData();
+        form.append("id", del);
+        fetch("{% url 'taxonomy:delete' %}", {
+          method: "POST",
+          headers: {"X-CSRFToken": "{{ csrf_token }}"},
+          body: form
+        }).then(loadRows);
+      }
+    }
+  });
+
+  // save term
+  document.getElementById("termForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    fetch("{% url 'taxonomy:save' %}", {
+      method: "POST",
+      headers: {"X-CSRFToken": "{{ csrf_token }}"},
+      body: form
+    }).then(r => r.json()).then(j => {
+      if (j.ok) {
+        bootstrap.Modal.getInstance(document.getElementById("termModal")).hide();
+        loadRows();
+      } else {
+        alert("Save failed");
+      }
+    });
+  });
+
+  // initial + filter submit
+  document.getElementById("filter-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const url = new URL(window.location);
+    url.searchParams.set("vocab", vocabSel.value);
+    history.replaceState({}, "", url);
+    loadRows();
+  });
+
+  loadRows();
+})();
+</script>
 {% endblock %}

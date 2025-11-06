@@ -5,4 +5,5 @@ urlpatterns = [
     path('', views.home, name='home'),
     path('profile/', views.tech_profile, name='tech_profile'),
     path('dashboard/', views.dashboard, name='dashboard'),
+    path('logout/', LogoutView.as_view(next_page="home"), name='logout'),
 ]
