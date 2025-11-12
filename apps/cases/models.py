@@ -31,3 +31,12 @@ class Case(models.Model):
 
     def __str__(self):
         return self.title
+
+class SavedSearch(models.Model):
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="cases_saved_searches")
+    name = models.CharField(max_length=200)
+    query = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.owner.username})"

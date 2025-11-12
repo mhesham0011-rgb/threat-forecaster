@@ -1,17 +1,29 @@
 import os
 import requests
+import logging
 
-from django.shortcuts import render
+from datetime import datetime
+from collections import Counter
+from django.db import transaction
+from django.shortcuts import render, redirect
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST
 from django.views.generic import ListView
 from django.utils.timezone import make_aware
 from django.utils import timezone
-from datetime import datetime
-from django.views.decorators.http import require_GET
-from .models import IntelItem
-from apps.audit.utils import write_audit, log_audit
+from django.views.decorators.http import require_GET, require_POST
+
+from .models import IntelItem, SavedSearch
+from apps.audit.utils import write_audit
+
+logger = logging.getLogger(__name__)
+
+def _require_env(var):
+    val = os.environ.get(var)
+    if not val:
+        raise RuntimeError(f"Missing required environment variable: {var}")
+    return val
 
 def parse_timestamp(ts):
     """
@@ -254,91 +266,87 @@ def intel_detail_json(request, pk):
         "created_at": item.created_at.strftime("%Y-%m-%d %H:%M") if hasattr(item, "created_at") and item.created_at else "",
     })
 
-@require_GET
 @login_required
+@require_POST
 def fetch_intel_sources(request):
     """
-    Pull intel from external providers, save new stuff,
-    and return whatever we just added (normalized).
+    Pull intel from external providers, save new records, return a JSON summary.
+    Returns:
+      200 {ok: true, inserted: N, per_source: {...}}
+      500 {ok: false, error: "..."}
     """
+    try:
+        # 1) Pull from all sources (each returns list[dict])
+        abuse = fetch_from_abuseipdb() or []
+        vt    = fetch_from_virustotal() or []
+        otx   = fetch_from_otx() or []
 
-    # 1. gather data from all sources
-    abuse_items = fetch_from_abuseipdb()
-    vt_items    = fetch_from_virustotal()
-    otx_items   = fetch_from_otx()
+        combined = abuse + vt + otx
 
-    combined = abuse_items + vt_items + otx_items
+        # 2) De-duplicate by (value, source)
+        seen = set()
+        unique = []
+        for item in combined:
+            key = (item.get("value"), item.get("source"))
+            if not key[0] or not key[1]:
+                continue
+            if key not in seen:
+                seen.add(key)
+                unique.append(item)
 
-    # 2. dedupe by (value, source)
-    seen = set()
-    unique_items = []
-    for item in combined:
-        key = (item["value"], item["source"])
-        if key not in seen:
-            seen.add(key)
-            unique_items.append(item)
+        # 3) Insert if not present
+        actually_added = []
+        per_source_counter = Counter([i.get("source") for i in unique if i.get("source")])
 
-    # 3. insert into DB if not already there
-    actually_added = []
-    for entry in unique_items:
-        # Safely fill timestamps so they are never None
-        clean_first = entry.get("first_seen")
-        clean_last  = entry.get("last_seen")
+        with transaction.atomic():
+            for entry in unique:
+                value = entry.get("value")
+                source = entry.get("source")
+                if not value or not source:
+                    continue
 
-        if not clean_first:
-            clean_first = timezone.now()  # fallback to "now"
+                # timestamps default
+                first_seen = entry.get("first_seen") or timezone.now()
+                last_seen  = entry.get("last_seen")  or first_seen
 
-        if not clean_last:
-            clean_last = clean_first      # fallback to first_seen
+                obj, created = IntelItem.objects.get_or_create(
+                    value=value,
+                    source=source,
+                    defaults={
+                        "indicator_type": entry.get("indicator_type", ""),
+                        "severity":      entry.get("severity", 1),
+                        "confidence":    entry.get("confidence", 0),
+                        "first_seen":    first_seen,
+                        "last_seen":     last_seen,
+                        "created_by":    request.user,
+                    },
+                )
+                if created:
+                    actually_added.append(obj)
 
-        obj, created = IntelItem.objects.get_or_create(
-            value=entry["value"],
-            source=entry["source"],
-            defaults={
-                "indicator_type": entry.get("indicator_type", ""),
-                "severity":      entry.get("severity", 1),
-                "confidence":    entry.get("confidence", 0),
-                "first_seen":    clean_first,
-                "last_seen":     clean_last,
-                "created_by":    request.user,
-            },
+        added = len(actually_added)
+        per_source = dict(per_source_counter)
+
+        # 4) Audit (safe if you use it)
+        try:
+            write_audit(
+                request=request,
+                action="intel.fetch",
+                message=f"Fetched intel from sources (added {added})",
+                target_type="intel",
+                extra={"added": added, "per_source": per_source},
+            )
+        except Exception:
+            logger.debug("write_audit unavailable", exc_info=True)
+
+        return JsonResponse(
+            {"ok": True, "inserted": added, "per_source": per_source},
+            status=200,
         )
 
-        if created:
-            actually_added.append(obj)
-
-    # 4. prepare JSON for front-end
-    payload = []
-    for obj in actually_added:
-        payload.append({
-            "value": obj.value,
-            "indicator_type": obj.indicator_type,
-            "severity": obj.severity,
-            "severity_label": obj.severity_label(),
-            "confidence": obj.confidence,
-            "source": obj.source,
-            "first_seen": obj.first_seen,
-            "last_seen": obj.last_seen,
-        })
-
-    added = len(actually_added)
-    per_source = {
-        "VirusTotal": len([x for x in unique_items if x.get("source") == "VirusTotal"]),
-        "AbuseIPDB": len([x for x in unique_items if x.get("source") == "AbuseIPDB"]),
-        "OTX": len([x for x in unique_items if x.get("source") == "OTX"]),
-    }
-
-    write_audit(
-        request=request,
-        action="intel.fetch",
-        message=f"Fetched intel from sources (added {added})",
-        target_type="intel",
-        extra={"added": added, "per_source": per_source}
-    )
-
-    log_audit(request, "intel.fetch", message=f"Fetched {le(payload)} indicators from sources")
-
-    return JsonResponse({"added": payload})
+    except Exception as e:
+        logger.exception("Intel fetch failed")
+        return JsonResponse({"ok": False, "error": str(e)}, status=500)
 
 def fetch_from_abuseipdb():
     """
@@ -361,39 +369,43 @@ def fetch_from_abuseipdb():
     # AbuseIPDB "Blacklisted IPs" export /v2/blacklist is a common one.
     url = "https://api.abuseipdb.com/api/v2/blacklist"
 
-    resp = requests.get(
-        url,
-        headers={
-            "Key": api_key,
-            "Accept": "application/json",
-        },
-        params={
-            "limit": 10,  # limit how much we ingest per click
-            "confidenceMinimum": 75,
-        }
-    )
+    try:
+        resp = requests.get(
+            url,
+            headers={
+                "Key": api_key,
+                "Accept": "application/json",
+            },
+                params={
+                "limit": 10,  # limit how much we ingest per click
+                "confidenceMinimum": 75,
+            },
+            timeout=20,
+        )
+    except requests.RequestException:
+        return []
 
     if resp.status_code != 200:
         return []
 
-    data = resp.json()
+    data = resp.json() or {}
     items = []
 
     # AbuseIPDB returns a list of {ipAddress, abuseConfidenceScore, lastReportedAt, ...}
     for entry in data.get("data", []):
         ip_addr = entry.get("ipAddress")
-        conf = entry.get("abuseConfidenceScore", 0)
+        conf_raw = entry.get("abuseConfidenceScore", 0)
         last_seen = entry.get("lastReportedAt", "")
 
         # Map confidence -> severity bucket
         # you can tune this however you want
-        if conf >= 90:
+        if conf_raw >= 90:
             sev = 4
             sev_conf_label = "High"
-        elif conf >= 70:
+        elif conf_raw >= 70:
             sev = 3
             sev_conf_label = "High"
-        elif conf >= 40:
+        elif conf_raw >= 40:
             sev = 2
             sev_conf_label = "Medium"
         else:
@@ -404,7 +416,7 @@ def fetch_from_abuseipdb():
             "value": ip_addr,
             "indicator_type": "ip",
             "severity": sev,
-            "confidence": map_confidence_to_score(report.get("confidence_score")),
+            "confidence": int(conf_raw),
             "source": "AbuseIPDB",
             "first_seen": "",         # AbuseIPDB doesn't always expose "first seen" here
             "last_seen": last_seen,
@@ -523,3 +535,19 @@ def fetch_from_otx():
             })
 
     return items
+
+@login_required
+def saved_search_list(request):
+    searches = SavedSearch.objects.filter(owner=request.user)
+    return render(request, "intel_saved_searches/list.html", {"searches": searches})
+
+@login_required
+def saved_search_create(request):
+    if request.method == "POST":
+        name = request.POST.get("name")
+        query = request.POST.get("query")
+
+        SavedSearch.objects.create(owner=request.user, name=name, query=query,)
+        return redirect("intel_saved_search_list")
+
+    return render(request, "intel_saved_searches/create.html")

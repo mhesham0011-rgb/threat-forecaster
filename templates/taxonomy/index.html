@@ -92,7 +92,7 @@
       vocab: vocabSel.value,
       q: queryInp.value || ""
     });
-    const res = await fetch("{% url 'taxonomy:list' %}?" + params.toString(), {headers:{'X-Requested-With':'XMLHttpRequest'}});
+    const res = await fetch("{% url 'taxonomy:technique-list' %}?" + params.toString(), {headers:{'X-Requested-With':'XMLHttpRequest'}});
     const json = await res.json();
     tableBody.innerHTML = "";
     json.rows.forEach(r => {

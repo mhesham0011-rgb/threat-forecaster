@@ -1,13 +1,13 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, CreateView, UpdateView
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, render, redirect
 from django.http import JsonResponse, Http404
 from django.urls import reverse_lazy
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.utils.timezone import localtime
 
-from .models import Case
+from .models import Case, SavedSearch
 from .forms import CaseForm
 
 # If you use a helper to write audit logs:
@@ -152,3 +152,23 @@ def case_detail_json(request, pk):
         ),
     }
     return JsonResponse(data)
+
+@login_required
+def saved_search_list(request):
+    searches = SavedSearch.objects.filter(owner=request.user)
+    return render(request, "cases_saved_searches/list.html", {"searches": searches})
+
+@login_required
+def saved_search_create(request):
+    if request.method == "POST":
+        name = request.POST.get("name")
+        query = request.POST.get("query")
+
+        SavedSearch.objects.create(
+            owner=request.user,
+            name=name,
+            query=query,
+        )
+        return redirect("cases_saved_search_list")
+
+    return render(request, "cases_saved_searches/create.html")

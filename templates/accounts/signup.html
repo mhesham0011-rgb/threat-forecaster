@@ -2,7 +2,7 @@
 {% block title %}Sign Up{% endblock %}
 {% block content %}
 <h1 class="mb-3">Create your account</h1>
-<form method="post" class="card card-body bg-dark border-secondary">
+<form method="post" action="{% url 'accounts:signup' %}" class="card card-body bg-dark border-secondary text-light">
 	{% csrf_token %}
 	{{ form.as_p }}
 	<button class="btn btn-primary">Sign Up</button>

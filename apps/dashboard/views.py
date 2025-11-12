@@ -1,9 +1,16 @@
 from datetime import timedelta
 
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count
 from django.db.models.functions import TruncHour
+from django.shortcuts import render
 from django.utils.timezone import now
 from django.views.generic import TemplateView
+
+@login_required
+def index(request):
+    return render(request, "dashboard/index.html")
 
 # Import models defensively so the dashboard still renders even if an app is missing.
 try:
@@ -22,7 +29,7 @@ except Exception:  # pragma: no cover
     Case = None  # type: ignore
 
 
-class DashboardView(TemplateView):
+class DashboardView(LoginRequiredMixin, TemplateView):
     """
     Dashboard (executive) view:
       - KPI: Audit events in last 24h

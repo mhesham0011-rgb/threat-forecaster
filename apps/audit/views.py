@@ -6,8 +6,10 @@ from django.utils.timezone import localtime
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView
 from django.db.models import Q
+
 from apps.audit.utils import write_audit
-from .models import AuditLog, AuditEntry
+from .models import AuditLog, AuditEntry, SavedSearch
+
 import csv
 
 class AuditListView(LoginRequiredMixin, ListView):
@@ -136,3 +138,20 @@ def export_csv(request):
         ])
 
     return response
+
+@login_required
+def saved_search_list(request):
+    searches = SavedSearch.objects.filter(owner=request.user)
+    return render(request, "audit_saved_searches/list.html", {"searches": searches})
+
+@login_required
+def saved_search_create(request):
+    if request.method == "POST":
+        name = request.POST.get("name")
+        query = request.POST.get("query")
+
+        SavedSearch.objects.create(owner=request.user, name=name, query=query,)
+
+        return redirect("audit_saved_search_list")
+
+    return render(request, "audit_saved_searches/create.html")

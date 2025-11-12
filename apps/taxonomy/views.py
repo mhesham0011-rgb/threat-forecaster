@@ -1,73 +1,306 @@
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import JsonResponse, HttpResponseBadRequest
-from django.views.generic import TemplateView
-from django.views.decorators.http import require_POST
-from django.utils.decorators import method_decorator
-from django.shortcuts import get_object_or_404
-from django.db.models import Q
-from .models import TaxonomyTerm
+from django.contrib.auth.decorators import login_required
+from django_filters.rest_framework import DjangoFilterBackend
+from django.http import JsonResponse
+from django.shortcuts import render
+from django.utils.timezone import now
+from django.views.decorators.http import require_GET, require_POST
 
-class TaxonomyIndexView(LoginRequiredMixin, TemplateView):
-    template_name = "taxonomy/index.html"
+from rest_framework import generics, viewsets, filters
+from rest_framework.response import Response
+from rest_framework.decorators import action
+from rest_framework.views import APIView
 
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        ctx["vocabs"] = TaxonomyTerm.VOCABS
-        ctx["current_vocab"] = self.request.GET.get("vocab", "indicator_type")
-        return ctx
+from .models import Tactic, Technique, TechniqueStat, CTIEvent, DetectionRule, TaxonomyTerm
+from .serializers import TacticSerializer, TechniqueListSerializer,TechniqueDetailSerializer, CTIEventSerializer, DetectionRuleSerializer
 
-def list_terms(request):
-    if not request.user.is_authenticated:
-        return JsonResponse({"error": "unauthorized"}, status=401)
+def taxonomy_index(request):
+    """
+    HTML Taxonomy page. This helps the navbar to link to.
+    """
 
-    vocab = request.GET.get("vocab") or "indicator_type"
-    q = (request.GET.get("q") or "").strip()
-    qs = TaxonomyTerm.objects.filter(vocab=vocab)
+    return render(request, "taxonomy/index.html")
+
+@login_required
+@require_POST
+def taxonomy_delete(request):
+    term_id = request.POST.get("id")
+
+    return JsonResponse({"ok": True})
+
+@require_GET
+@login_required
+def taxonomy_list(request):
+    """
+    Return list of terms as JSON.
+    Accepts:
+      - ?vocab=...   (required: which group to show)
+      - ?q=...       (optional: search in key/label)
+    Response:
+      { "rows": [ {id, vocab, key, label, order, color, enabled}, ... ] }
+    """
+    vocab = request.GET.get("vocab")
+    q = request.GET.get("q", "").strip()
+
+    qs = TaxonomyTerm.objects.all()
+    if vocab:
+        qs = qs.filter(vocab=vocab)
+
     if q:
+        from django.db.models import Q
         qs = qs.filter(Q(key__icontains=q) | Q(label__icontains=q))
 
-    data = [{
-        "id": t.id,
-        "key": t.key,
-        "label": t.label,
-        "order": t.order,
-        "color": t.color or "",
-        "enabled": t.enabled,
-    } for t in qs.order_by("order","label")]
-
-    return JsonResponse({"rows": data})
+    rows = [
+        {
+            "id": t.id,
+            "vocab": t.vocab,
+            "key": t.key,
+            "label": t.label,
+            "order": t.order,
+            "color": t.color,
+            "enabled": t.enabled,
+        }
+        for t in qs
+    ]
+    return JsonResponse({"rows": rows})
 
 @require_POST
-def save_term(request):
-    if not request.user.is_authenticated:
-        return JsonResponse({"error":"unauthorized"}, status=401)
+@login_required
+def taxonomy_save(request):
+    """
+    Create or update a term from form data.
 
-    payload = request.POST
-    term_id = payload.get("id")
-    vocab   = payload.get("vocab")
-    key     = (payload.get("key") or "").strip()
-    label   = (payload.get("label") or "").strip()
-    order   = int(payload.get("order") or 0)
-    color   = (payload.get("color") or "").strip()
-    enabled = payload.get("enabled") in ("true","1","on","yes")
+    Expects POST fields:
+      - id (optional; if provided, update, else create)
+      - vocab
+      - key
+      - label
+      - order
+      - color
+      - enabled (on/off checkbox)
+    Returns: { "ok": true, "id": <id> } or { "ok": false, "error": "..." }
+    """
+    term_id = request.POST.get("id")
+    vocab = (request.POST.get("vocab") or "").strip()
+    key = (request.POST.get("key") or "").strip()
+    label = (request.POST.get("label") or "").strip()
+    color = (request.POST.get("color") or "").strip()
+    enabled = request.POST.get("enabled") in ("on", "true", "1")
 
-    if not vocab or not key or not label:
-        return HttpResponseBadRequest("vocab, key, label required")
+    # order might be empty
+    try:
+        order = int(request.POST.get("order") or 0)
+    except ValueError:
+        order = 0
+
+    if not vocab or not key:
+        return JsonResponse(
+            {"ok": False, "error": "vocab and key are required"}, status=400
+        )
 
     if term_id:
-        term = get_object_or_404(TaxonomyTerm, pk=term_id)
-        term.key, term.label, term.order, term.color, term.enabled = key, label, order, color, enabled
-        term.save()
+        # update existing
+        try:
+            term = TaxonomyTerm.objects.get(id=term_id)
+        except TaxonomyTerm.DoesNotExist:
+            return JsonResponse(
+                {"ok": False, "error": "Term not found"}, status=404
+            )
     else:
-        term = TaxonomyTerm.objects.create(
-            vocab=vocab, key=key, label=label, order=order, color=color, enabled=enabled
-        )
+        # create new
+        term = TaxonomyTerm(vocab=vocab, key=key)
+
+    term.label = label
+    term.order = order
+    term.color = color
+    term.enabled = enabled
+    term.vocab = vocab  # in case you allow changing vocab on edit
+    term.key = key      # in case you allow changing key
+    term.save()
+
     return JsonResponse({"ok": True, "id": term.id})
 
-@require_POST
-def delete_term(request):
-    if not request.user.is_authenticated:
-        return JsonResponse({"error":"unauthorized"}, status=401)
-    term = get_object_or_404(TaxonomyTerm, pk=request.POST.get("id"))
-    term.delete()
-    return JsonResponse({"ok": True})
+class CTIEventViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Read-only view of CTI events / reports, with filters.
+    """
+    queryset = CTIEvent.objects.all().order_by("-published_at")
+    serializer_class = CTIEventSerializer
+
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+
+    filterset_fields = {
+        "source": ["exact"],                              # ?source=MISP
+        "techniques__attack_id": ["exact"],              # ?techniques__attack_id=T1059
+        "published_at": ["date__gte", "date__lte"],      # ?published_at__date__gte=2025-11-01
+    }
+
+    search_fields = ["title", "summary", "external_id"]
+    ordering_fields = ["published_at", "source", "title"]
+    ordering = ["-published_at"]
+
+class DetectionRuleViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Read-only access to mapped detection rules.
+    """
+    queryset = DetectionRule.objects.select_related("technique").all()
+    serializer_class = DetectionRuleSerializer
+
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+
+    filterset_fields = {
+        "technique__attack_id": ["exact"],      # ?technique__attack_id=T1059
+        "source_system": ["exact"],            # ?source_system=Wazuh
+        "enabled": ["exact"],
+    }
+
+    search_fields = ["name", "rule_id", "description", "technique__attack_id"]
+    ordering_fields = ["source_system", "name", "last_tested"]
+    ordering = ["source_system", "name"]
+
+
+class TacticListView(generics.ListAPIView):
+    """
+    For building the ATT&CK matrix on the Taxonomy page.
+    """
+    queryset = Tactic.objects.all().order_by("order")
+    serializer_class = TacticSerializer
+
+class TacticViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Read-only access to tactics and their techniques.
+    Used to build the ATT&CK matrix columns.
+    """
+
+    queryset = Tactic.objects.all().order_by("order")
+    serializer_class = TacticSerializer
+
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["attack_id", "name", "description"]
+    ordering_fields = ["order", "attack_id", "name"]
+    ordering = ["order"]
+
+class TechniqueListView(generics.ListAPIView):
+    """
+    Optional: list techniques independently of tactics.
+    """
+    queryset = Technique.objects.select_related("tactic").all()
+    serializer_class = TechniqueListSerializer
+
+
+class TechniqueDetailView(generics.RetrieveAPIView):
+    """
+    Full detail of a single technique, including live stats + detections + CTI.
+    """
+    lookup_field = "attack_id"
+    queryset = Technique.objects.select_related("tactic").all()
+    serializer_class = TechniqueDetailSerializer
+
+
+class TechniqueStatsSummaryView(APIView):
+    """
+    Lightweight summary for dashboards / heatmaps.
+    Returns aggregated stats for all techniques.
+    """
+
+    def get(self, request, *args, **kwargs):
+        stats = TechniqueStat.objects.select_related("technique", "technique__tactic")
+        data = []
+
+        for s in stats:
+            data.append(
+                {
+                    "attack_id": s.technique.attack_id,
+                    "technique_name": s.technique.name,
+                    "tactic_attack_id": s.technique.tactic.attack_id,
+                    "sightings_7d": s.sightings_7d,
+                    "sightings_30d": s.sightings_30d,
+                    "last_seen": s.last_seen,
+                    "coverage_score": s.coverage_score,
+                }
+            )
+
+        return Response(
+            {
+                "generated_at": now(),
+                "techniques": data,
+            }
+        )
+
+class TechniqueViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Read-only access to ATT&CK techniques, with filters.
+    """
+    queryset = (
+        Technique.objects.select_related("tactic")
+        .prefetch_related("stats")
+        .all()
+    )
+
+    # Default list serializer (lightweight)
+    serializer_class = TechniqueListSerializer
+
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+
+    # Filter by related fields
+    filterset_fields = {
+        "tactic__attack_id": ["exact"],      # ?tactic__attack_id=TA0001
+        "tactic__name": ["exact", "icontains"],
+        "platforms": ["icontains"],          # If you store platforms as JSON list
+        "is_deprecated": ["exact"],
+    }
+
+    search_fields = [
+        "attack_id",
+        "name",
+        "description",
+        "tactic__attack_id",
+        "tactic__name",
+    ]
+
+    ordering_fields = ["attack_id", "name", "tactic__order"]
+    ordering = ["tactic__order", "attack_id"]
+
+    def get_serializer_class(self):
+        """
+        Use a richer serializer for retrieve() calls.
+        """
+        if self.action == "retrieve":
+            return TechniqueDetailSerializer
+        return TechniqueListSerializer
+
+    lookup_field = "attack_id"  # so /techniques/T1059/
+
+    @action(detail=False, methods=["get"])
+    def stats(self, request, *args, **kwargs):
+        """
+        /api/taxonomy/techniques/stats/
+        Lightweight stats summary for dashboards / heatmaps.
+        """
+        stats = TechniqueStat.objects.select_related("technique", "technique__tactic")
+
+        # Optional: filtering by tactic via query param
+        tactic_id = request.query_params.get("tactic")
+        if tactic_id:
+            stats = stats.filter(technique__tactic__attack_id=tactic_id)
+
+        data = [
+            {
+                "attack_id": s.technique.attack_id,
+                "technique_name": s.technique.name,
+                "tactic_attack_id": s.technique.tactic.attack_id,
+                "tactic_name": s.technique.tactic.name,
+                "sightings_7d": s.sightings_7d,
+                "sightings_30d": s.sightings_30d,
+                "last_seen": s.last_seen,
+                "coverage_score": s.coverage_score,
+            }
+            for s in stats
+        ]
+
+        return Response(
+            {
+                "generated_at": now(),
+                "count": len(data),
+                "results": data,
+            }
+        )

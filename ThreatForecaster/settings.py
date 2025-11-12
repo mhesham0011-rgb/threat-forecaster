@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django_filters',
     'users',
     'pages',
     'rest_framework',
@@ -79,7 +80,7 @@ ROOT_URLCONF = 'ThreatForecaster.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR, 'templates'],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -161,8 +162,9 @@ STATICFILES_FINDERS = [
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-LOGIN_REDIRECT_URL = '/'    # Redirect to homepage after login
-LOGOUT_REDIRECT_URL = 'home'    # Redirect to homepage after logout
+LOGIN_URL = 'accounts:login'
+LOGIN_REDIRECT_URL = 'dashboard:index'    # Redirect to dashboard page after login
+LOGOUT_REDIRECT_URL = 'accounts:login'    # Redirect to login page after logout
 
 SECURE_HSTS_SECONDS = 31536000
 SECURE_SSL_REDIRECT = True
@@ -177,6 +179,13 @@ CELERY_RESULT_BACKEND = env('REDIS_URL')
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_THROTTLE_RATES": {"anon": "60/min", "user": "120/min"},
+    "DEFAULT_FILTER_BAKENDS": [
+        "django_filters.rest_framework.DjangoFilterBackend",
+        "rest_framework.filters.SearchFilter",
+        "rest_framework.filters.OrderingFilter",
+    ],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 50,
 }
 
 SPECTACULAR_SETTINGS = {"TITLE": "ThreatForecaster API", "VERSION": "1.0.0"}

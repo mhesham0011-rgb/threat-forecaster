@@ -66,3 +66,12 @@ class AuditEntry(models.Model):
     def __str__(self):
         who = self.user.username if self.user else "system"
         return f"[{self.timestamp:%Y-%m-%d %H:%M:%S}] {self.action} (user={who})"
+
+class SavedSearch(models.Model):
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="audit_saved_searches")
+    name = models.CharField(max_length=200)
+    query = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.owner.username})"

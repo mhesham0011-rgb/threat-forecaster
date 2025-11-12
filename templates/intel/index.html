@@ -10,7 +10,7 @@
     <h1 class="h3 mb-0 text-body">Threat Intelligence</h1>
     <div class="d-flex gap-2">
       <div id="intel-export-slot"></div>
-      <button id="fetch-intel" class="btn btn-outline-secondary btn-sm">Fetch from Sources</button>
+      <button id="fetch-btn" class="btn btn-outline-secondary btn-sm">Fetch from Sources</button>
       <a class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addIntelModal">+ Add Intel</a>
     </div>
   </div>
@@ -135,95 +135,168 @@
   </div>
 
 </div>
-
 <script>
-document.addEventListener("DOMContentLoaded", function () {
-  const t = $('#intel-table').DataTable({
-    pageLength: 25,
-    order: [[5, 'desc']],
-    autoWidth: false,
-    lengthChange: true,
-    searching: true,
-    dom: "lrtip",
-    buttons: [
-      { extend: 'csvHtml5', text: 'Export CSV', className: 'btn btn-outline-secondary btn-sm', title: 'Intel Data' },
-      { extend: 'excelHtml5', text: 'Export Excel', className: 'btn btn-outline-secondary btn-sm', title: 'Intel Data' },
-      { extend: 'print', text: 'Print', className: 'btn btn-outline-secondary btn-sm', title: 'Threat Intelligence' }
-    ],
-    columnDefs: [
-      { orderable: true, targets: [0,1,2,3,4,5,6] },
-      { className: 'text-nowrap', targets: [1,2,3,4,5,6] }
-    ]
-  });
-  if ($.fn.dataTable.Buttons) {
-    t.buttons().container().appendTo('#intel-export-slot');
+(function () {
+  // ----- helpers -----
+  function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+  }
+  function sevToBadge(sevLabel) {
+    // map your severity label -> bootstrap badge color
+    const map = {
+      Critical: 'danger',
+      High: 'danger',
+      Moderate: 'info',
+      Medium: 'info',
+      Low: 'success',
+      Unknown: 'secondary'
+    };
+    return map[sevLabel] || 'secondary';
   }
 
-  // Submit form via AJAX
-  const form = document.getElementById('add-intel-form');
-  const errorsBox = document.getElementById('add-intel-errors');
-  const modalEl = document.getElementById('addIntelModal');
-  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  document.addEventListener('DOMContentLoaded', function () {
+    // ----- DataTable init (guard against re-init) -----
+    const tableSel = '#intel-table';
+    if ($.fn.dataTable.isDataTable(tableSel)) {
+      $(tableSel).DataTable().clear().destroy();
+    }
+    const t = $(tableSel).DataTable({
+      pageLength: 25,
+      order: [[5, 'desc']],               // assuming 6th col is First Seen
+      autoWidth: false,
+      lengthChange: true,
+      searching: true,
+      dom: 'lrtip',                        // show length, table, pagination (no built-in search box)
+      buttons: [
+        { extend: 'csvHtml5',   text: 'Export CSV',   className: 'btn btn-outline-secondary me-2' },
+        { extend: 'excelHtml5', text: 'Export Excel', className: 'btn btn-outline-secondary me-2' },
+        { extend: 'print',      text: 'Print',        className: 'btn btn-outline-secondary' }
+      ],
+      columnDefs: [
+        { orderable: true, targets: [0,1,2,3,4,5,6] },
+        { className: 'text-nowrap', targets: [1,2,3,4,5,6] }
+      ],
+      retrieve: true,
+      deferRender: true,
+      responsive: true
+    });
 
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    errorsBox.style.display = 'none';
+    if ($.fn.dataTable.Buttons) {
+      t.buttons().container().appendTo('#intel-export-slot');
+    }
 
-    const data = new FormData(form);
-    try {
-      const res = await fetch(form.action, {
-        method: 'POST',
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
-        body: data
+    // ----- Add Intel form (AJAX) -----
+    const form = document.getElementById('add-intel-form');
+    const errorsBox = document.getElementById('add-intel-errors');
+    const modalEl = document.getElementById('addIntelModal');
+    const modal = modalEl ? bootstrap.Modal.getOrCreateInstance(modalEl) : null;
+
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (errorsBox) {
+          errorsBox.style.display = 'none';
+          errorsBox.innerText = '';
+        }
+
+        const data = new FormData(form);
+        try {
+          const res = await fetch(form.action, {
+            method: 'POST',
+            headers: {
+              'X-Requested-With': 'XMLHttpRequest',
+              'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: data
+          });
+
+          // 400 with JSON errors (CreateView.form_invalid)
+          if (!res.ok) {
+            let msg = 'Request failed';
+            try {
+              const j = await res.json();
+              msg = j.errors ? JSON.stringify(j.errors) : (j.error || msg);
+            } catch {
+              msg = await res.text();
+            }
+            if (errorsBox) {
+              errorsBox.innerText = msg;
+              errorsBox.style.display = 'block';
+            } else {
+              alert(msg);
+            }
+            return;
+          }
+
+          const j = await res.json();
+          // Expecting the CreateView JSON (id, value, indicator_type, threat_score, verdict, first_seen, last_seen)
+          const sevClass = sevToBadge(j.severity_label);
+          const sevBadge = `<span class="badge bg-${sevClass}">${j.severity_label || ''}</span>`;
+
+          t.row.add([
+            j.value || '',
+            j.indicator_type || '',
+            sevBadge,
+            j.confidence ?? '',
+            j.source || '',
+            j.first_seen || '',
+            j.last_seen || ''
+          ]).draw(false);
+
+          form.reset();
+          if (modal) modal.hide();
+        } catch (err) {
+          const msg = 'Network error. Please try again.';
+          if (errorsBox) {
+            errorsBox.innerText = msg;
+            errorsBox.style.display = 'block';
+          } else {
+            alert(msg);
+          }
+        }
       });
-      if (!res.ok) {
-        const j = await res.text();
-        errorsBox.innerText = j;
-        errorsBox.style.display = 'block';
-        return;
-      }
-      const j = await res.json();
-      t.row.add([
-        j.value,
-        j.indicator_type,
-        `<span class="badge bg-${j.severity_label === 'Critical' ? 'danger' : j.severity_label === 'High' ? 'warning text-dark' : j.severity_label === 'Moderate' ? 'info text-dark' : 'success'}">${j.severity_label}</span>`,
-        j.confidence || '',
-        j.source || '',
-        j.first_seen || '',
-        j.last_seen || ''
-      ]).draw(false);
+    }
 
-      form.reset();
-      modal.hide();
-    } catch (err) {
-      errorsBox.innerText = 'Network error. Please try again.';
-      errorsBox.style.display = 'block';
+    // ----- Fetch from Sources button (POST with CSRF) -----
+    const fetchBtn = document.getElementById('fetch-btn');
+    if (fetchBtn) {
+      fetchBtn.addEventListener('click', async () => {
+        const orig = fetchBtn.textContent;
+        fetchBtn.disabled = true;
+        fetchBtn.textContent = 'Fetching…';
+
+        try {
+          const resp = await fetch("{% url 'intel:fetch' %}", {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({ sources: 'all' })
+          });
+
+          const raw = await resp.text();
+          if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status} – ${raw.slice(0, 200)}`);
+          }
+
+          const data = JSON.parse(raw);
+          if (!data.ok) throw new Error(data.error || 'Unknown error');
+
+          // success -> refresh (or reload DataTable via ajax if you use it)
+          location.reload();
+        } catch (e) {
+          alert('Fetch failed: ' + e.message);
+        } finally {
+          fetchBtn.disabled = false;
+          fetchBtn.textContent = orig;
+        }
+      });
     }
   });
-
-  // Fetch from Sources button
-  document.getElementById("fetch-intel").addEventListener("click", async () => {
-    try {
-      const res = await fetch("{% url 'intel:fetch' %}", { headers: { "X-Requested-With": "XMLHttpRequest" } });
-      if (!res.ok) { alert("Fetch failed."); return; }
-      const data = await res.json();
-      
-      data.added.forEach(row => {
-        t.row.add([
-          row.value,
-          row.indicator_type,
-          `<span class="badge badge-soft">${row.severity_label}</span>`,
-          row.confidence || '',
-          row.source || '',
-          row.first_seen || '',
-          row.last_seen || ''
-        ]).draw(false);
-      });
-    } catch (err) {
-      alert("Error fetching intel.");
-    }
-  });
-});
+})();
 </script>
 
 {% endblock %}
