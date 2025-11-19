@@ -1,4 +1,10 @@
+import json
+
+from datetime import timedelta
+
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
+from django.db.models import Max, Sum, Q
 from django_filters.rest_framework import DjangoFilterBackend
 from django.http import JsonResponse
 from django.shortcuts import render
@@ -10,8 +16,56 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.views import APIView
 
-from .models import Tactic, Technique, TechniqueStat, CTIEvent, DetectionRule, TaxonomyTerm
+from .models import Tactic, Technique, TechniqueStat, CTIEvent, DetectionRule, TaxonomyTerm, SyncStatus, TaxonomyRefreshRun
 from .serializers import TacticSerializer, TechniqueListSerializer,TechniqueDetailSerializer, CTIEventSerializer, DetectionRuleSerializer
+
+@require_GET
+def live_summary(request):
+    # Latest run
+    latest = TaxonomyRefreshRun.objects.order_by("-started_at").first()
+    if latest:
+        ts = latest.finished_at or latest.started_at
+    else:
+        ts = None
+
+    def iso(v):
+        return v.isoformat() if v else None
+
+    # Basic timestamps for the existing badges
+    data = {
+        "attack_last_success": iso(ts),
+        "cti_last_success": iso(ts),
+        "coverage_last_success": iso(ts),
+    }
+
+    # Latest run status
+    if latest:
+        data.update({
+            "last_run_started": iso(latest.started_at),
+            "last_run_finished": iso(latest.finished_at),
+            "last_run_success": latest.success,
+            "last_run_error": (latest.error_message or "")[:400],
+            "last_run_new_count": len(latest.new_attack_ids or []),
+        })
+    else:
+        data.update({
+            "last_run_started": None,
+            "last_run_finished": None,
+            "last_run_success": False,
+            "last_run_error": "",
+            "last_run_new_count": 0,
+        })
+
+    # New techniques in last 24h
+    since = now() - timedelta(hours=24)
+    recent_runs = TaxonomyRefreshRun.objects.filter(started_at__gte = since, success=True)
+
+    new_ids_24h = sorted({tid for r in recent_runs for tid in (r.new_attack_ids or [])})
+
+    data["new_attack_ids_24h"] = new_ids_24h
+    data["new_attack_count_24h"] = len(new_ids_24h)
+
+    return JsonResponse(data)
 
 def taxonomy_index(request):
     """
@@ -304,3 +358,148 @@ class TechniqueViewSet(viewsets.ReadOnlyModelViewSet):
                 "results": data,
             }
         )
+
+ATTACK_VOCAB = "attack.technique"
+
+
+def run_live_refresh(what=None):
+    """
+    Does the ATT&CK / CTI / coverage sync, then mirrors Techniques into
+    TaxonomyTerm so the Taxonomy UI can show latest techniques.
+    Returns a stats dict for logging.
+    """
+
+    with transaction.atomic():
+        # ---- SNAPSHOT TAXONOMY STATE BEFORE SYNC ----
+        before_ids = set(
+            TaxonomyTerm.objects
+            .filter(vocab=ATTACK_VOCAB)
+            .values_list("key", flat=True)
+        )
+
+        # ---- YOUR EXISTING SYNC LOGIC HERE (optional) ----
+        # e.g.:
+        #   sync_attack()
+        #   sync_cti()
+        #   recompute_coverage()
+        # --------------------------------------------------
+
+        # ---- MIRROR Technique → TaxonomyTerm ----
+
+        # Existing terms for this vocab, keyed by ATT&CK ID
+        existing_terms = {
+            t.key: t
+            for t in TaxonomyTerm.objects.filter(vocab=ATTACK_VOCAB)
+        }
+
+        # For each Technique in the DB, ensure there is a matching TaxonomyTerm
+        for tech in Technique.objects.select_related("tactic").all():
+            key = tech.attack_id
+            label = tech.name
+
+            # Use tactic.order to group techniques roughly by tactic
+            order = tech.tactic.order if getattr(tech, "tactic_id", None) else 0
+            color = "info"
+            enabled = not tech.is_deprecated
+
+            term = existing_terms.pop(key, None)
+
+            if term is None:
+                # New term
+                TaxonomyTerm.objects.create(
+                    vocab=ATTACK_VOCAB,
+                    key=key,
+                    label=label,
+                    order=order,
+                    color=color,
+                    enabled=enabled,
+                )
+            else:
+                # Update existing term if anything changed
+                changed = False
+                if term.label != label:
+                    term.label = label
+                    changed = True
+                if term.order != order:
+                    term.order = order
+                    changed = True
+                if term.color != color:
+                    term.color = color
+                    changed = True
+                if term.enabled != enabled:
+                    term.enabled = enabled
+                    changed = True
+                if changed:
+                    term.save()
+
+        # Anything left in existing_terms is a key that no longer exists as a Technique
+        removed_keys = list(existing_terms.keys())
+        if removed_keys:
+            TaxonomyTerm.objects.filter(
+                vocab=ATTACK_VOCAB,
+                key__in=removed_keys,
+            ).update(enabled=False)
+
+        # ---- DIFF AFTER SYNC (for logs / status panel) ----
+        after_ids = set(
+            TaxonomyTerm.objects
+            .filter(vocab=ATTACK_VOCAB)
+            .values_list("key", flat=True)
+        )
+
+        new_ids = sorted(after_ids - before_ids)
+        removed_ids = sorted(before_ids - after_ids)
+
+    # Return stats for TaxonomyRefreshRun + /live/summary/
+    return {
+        "scope": what or "all",
+        "new_attack_ids": new_ids,
+        "removed_attack_ids": removed_ids,
+    }
+
+ATTACK_VOCAB = "attack.technique"  # you already have this above run_live_refresh
+
+
+def taxonomy_terms_api(request):
+    """
+    Lightweight JSON API for the Taxonomy table.
+    Returns TaxonomyTerm rows for a given vocab (default: ATT&CK techniques).
+    Shape matches what the front-end expects: {"rows": [...]}.
+    """
+    vocab = request.GET.get("vocab") or ATTACK_VOCAB
+    q = (request.GET.get("q") or "").strip()
+
+    qs = TaxonomyTerm.objects.filter(vocab=vocab)
+
+    if q:
+        qs = qs.filter(
+            Q(key__icontains=q) |
+            Q(label__icontains=q)
+        )
+
+    rows = [
+        {
+            "id": t.id,
+            "key": t.key,
+            "label": t.label,
+            "order": t.order,
+            "color": t.color,
+            "enabled": t.enabled,
+        }
+        for t in qs.order_by("order", "key")
+    ]
+
+    return JsonResponse({"rows": rows})
+
+@require_POST
+@login_required
+def live_refresh(request):
+	"""
+	Called by the 'Refresh now' button in the UI.
+	"""
+
+	payload = json.loads(request.body or "{}")
+	what = payload.get("what")  # 'cti', 'attack', etc. or None
+	stats = run_live_refresh(what=what)
+
+	return JsonResponse({"ok": True, "stats":stats})

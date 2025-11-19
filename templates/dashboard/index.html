@@ -22,7 +22,7 @@
 
   <!-- Heading -->
   <div class="d-flex align-items-center justify-content-between mb-3">
-    <h2 class="mb-0">Dashboard</h2>
+    <h2 class="mb-0"><b>Dashboard</b></h2>
     <a href="{% url 'intel:index' %}" class="btn btn-success">Go to Intel</a>
   </div>
 
@@ -31,7 +31,7 @@
     <div class="col-12 col-md-3">
       <div class="card kpi-card shadow-sm">
         <div class="card-body">
-          <div class="text-muted">Total Cases</div>
+          <h5 class="card-title mb-0"><u>Total Cases</u></h5>
           <div class="kpi-value">{{ total_cases|default:0 }}</div>
         </div>
       </div>
@@ -39,7 +39,7 @@
     <div class="col-12 col-md-3">
       <div class="card kpi-card shadow-sm">
         <div class="card-body">
-          <div class="text-muted">Open Cases</div>
+          <h5 class="card-title mb-0"><u>Open Cases</u></h5>
           <div class="kpi-value">{{ open_cases|default:0 }}</div>
         </div>
       </div>
@@ -47,7 +47,7 @@
     <div class="col-12 col-md-3">
       <div class="card kpi-card shadow-sm">
         <div class="card-body">
-          <div class="text-muted">IOCs</div>
+          <h5 class="card-title mb-0"><u>IOCs</u></h5>
           <div class="kpi-value">{{ ioc_count|default:0 }}</div>
         </div>
       </div>
@@ -55,7 +55,7 @@
     <div class="col-12 col-md-3">
       <div class="card kpi-card shadow-sm">
         <div class="card-body">
-          <div class="text-muted">Last Intel Sync</div>
+          <h5 class="card-title mb-0"><u>Last Intel Sync</u></h5>
           <div class="kpi-value" style="font-size:1rem;">
             {% if last_sync %}{{ last_sync|date:"Y-m-d H:i" }}{% else %}—{% endif %}
           </div>
@@ -68,7 +68,7 @@
   <div class="row g-3 mb-4">
     <div class="col-12 col-lg-8">
       <div class="card shadow-sm">
-        <div class="card-header bg-white">Threat Volume (last 14 days)</div>
+        <h5 class="card-title mb-0"><u>Threat Volume (last 30 days)</u></h5>
         <div class="card-body">
           <canvas id="casesTrend"></canvas>
         </div>
@@ -76,7 +76,7 @@
     </div>
     <div class="col-12 col-lg-4">
       <div class="card shadow-sm h-100">
-        <div class="card-header bg-white">Case Severity</div>
+        <h5 class="card-title mb-0"><u>Case Severity</u></h5>
         <div class="card-body d-flex align-items-center">
           <canvas id="severityDonut"></canvas>
         </div>
@@ -88,7 +88,7 @@
   <div class="row g-3">
     <div class="col-12 col-xl-7">
       <div class="card shadow-sm">
-        <div class="card-header bg-white">Latest Intelligence</div>
+        <h5 class="card-title mb-0"><u>Latest Intelligence</u></h5>
         <div class="card-body p-0">
           <div class="table-responsive">
             <table class="table table-sm mb-0 align-middle">
@@ -136,7 +136,7 @@
 
     <div class="col-12 col-xl-5">
       <div class="card shadow-sm">
-        <div class="card-header bg-white">Recent Activity</div>
+        <h5 class="card-title mb-0"><u>Recent Activity</u></h5>
         <div class="card-body p-0">
           <div class="table-responsive">
             <table class="table table-sm mb-0">
@@ -166,6 +166,83 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+  <div class="row mt-4">
+    <!-- Top Open Cases -->
+    <div class="col-lg-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><u>Top Open Cases</u></h5>
+            </div>
+            <div class="card-body p-0">
+                <table class="table mb-0 table-sm">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Title</th>
+                            <th>Severity</th>
+                            <th>Opened</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% if top_open_cases %}
+                        {% for case in top_open_cases %}
+                        <tr>
+                            <td>{{ case.id }}</td>
+                            <td>{{ case.title }}</td>
+                            <td>{{ case.get_severity_display }}</td>
+                            <td>{{ case.opened_at|date:"Y-m-d H:i" }}</td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center text-muted py-3">
+                                No open cases yet.
+                            </td>
+                        </tr>
+                    {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Latest IOCs -->
+    <div class="col-lg-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0"><u>Latest IOCs</u></h5>
+            </div>
+            <div class="card-body p-0">
+                <table class="table mb-0 table-sm">
+                    <thead>
+                        <tr>
+                            <th>Indicator</th>
+                            <th>Type</th>
+                            <th>First Seen</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% if recent_iocs %}
+                        {% for ioc in recent_iocs %}
+                            <tr>
+                                <td>{{ ioc.value }}</td>
+                                <td>{{ ioc.get_ioc_type_display }}</td>
+                                <td>{{ ioc.created_at|date:"Y-m-d H:i" }}</td>
+                            </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="3" class="text-center text-muted py-3">
+                                No IOCs yet.
+                            </td>
+                        </tr>
+                    {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
   </div>
 </div>

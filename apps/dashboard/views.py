@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count
-from django.db.models.functions import TruncHour
+from django.db.models.functions import TruncHour, TruncDate
 from django.shortcuts import render
 from django.utils.timezone import now
 from django.views.generic import TemplateView
@@ -12,21 +12,25 @@ from django.views.generic import TemplateView
 def index(request):
     return render(request, "dashboard/index.html")
 
-# Import models defensively so the dashboard still renders even if an app is missing.
 try:
-    from apps.audit.models import AuditEntry  # expected fields: timestamp, action, etc.
-except Exception:  # pragma: no cover
-    AuditEntry = None  # type: ignore
+    from apps.cases.models import Case
+except Exception:   # fail soft if app not installed
+    Case = None
 
 try:
-    from apps.intel.models import IntelItem  # expected fields: indicator_type, ...
-except Exception:  # pragma: no cover
-    IntelItem = None  # type: ignore
+    from apps.ioc.models import IOC
+except Exception:
+    IOC = None
 
 try:
-    from apps.cases.models import Case  # noqa
-except Exception:  # pragma: no cover
-    Case = None  # type: ignore
+    from apps.intel.models import IntelItem
+except Exception:
+    IntelItem = None
+
+try:
+    from apps.audit.models import AuditEntry
+except Exception:
+    AuditEntry = None
 
 
 class DashboardView(LoginRequiredMixin, TemplateView):
@@ -43,61 +47,97 @@ class DashboardView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
 
-        # ---------- Time window ----------
-        since_24h = now() - timedelta(hours=24)
+        # ------- Cases --------
+        total_cases = 0
+        open_cases = 0
+        cases_trend = []
+        severity_breakdown = []
+        top_open_cases = []
+        recent_iocs = []
 
-        # ---------- KPI: Audit events in last 24h ----------
-        audit_last_24h = 0
-        audit_timeseries = []
-        if AuditEntry is not None:
-            qs_audit = AuditEntry.objects.filter(timestamp__gte=since_24h)
+        if Case is not None:
+            # Live counts
+            total_cases = Case.objects.count()
+            open_cases = Case.objects.filter(status="open").count()
 
-            audit_last_24h = qs_audit.count()
-
-            # Build an hourly series: annotate(ts=TruncHour(...)) then values/annotate
-            series = (
-                qs_audit.annotate(ts=TruncHour("timestamp"))
-                .values("ts")
-                .annotate(count=Count("id"))
-                .order_by("ts")
+            # Last 7 days trend (by opened_at)
+            since_30d = now() - timedelta(days=29)
+            trend_qs = (
+                Case.objects.filter(opened_at__gte=since_30d)
+                .annotate(day=TruncDate("opened_at"))
+                .values("day")
+                .annotate(total=Count("id"))
+                .order_by("day")
             )
-            audit_timeseries = [
-                {"ts": row["ts"].isoformat() if row["ts"] else None, "count": row["count"]}
-                for row in series
+            cases_trend = [
+                {"day": row["day"].strftime("%Y-%m-%d"), "total": row["total"]}
+                for row in trend_qs
+            ]
+            top_open_cases = (
+                Case.objects.filter(status="open")
+                .order_by("-severity", "-opened_at")[:5]
+            )
+
+            # Severity breakdown for the donut chart
+            severity_labels = {
+                1: "Low",
+                2: "Moderate",
+                3: "High",
+                4: "Critical",
+            }
+            sev_qs = (
+                Case.objects.values("severity")
+                .annotate(total=Count("id"))
+                .order_by("severity")
+            )
+            severity_breakdown = [
+                {
+                    "severity": row["severity"],
+                    "label": severity_labels.get(row["severity"], str(row["severity"])),
+                    "total": row["total"]
+                }
+                for row in sev_qs
             ]
 
-        # ---------- KPI: Total intel items ----------
-        intel_total = 0
-        intel_top_types = []
+        # ---- IOC ----
+        ioc_count = IOC.objects.count() if IOC is not None else 0
+        if IOC is not None:
+            recent_iocs = (IOC.objects.order_by("-created_at")[:5])
+
+        # ---- INTEL LAST SYNC (best-effort) ----
+        last_sync = None
         if IntelItem is not None:
-            intel_total = IntelItem.objects.count()
-            intel_top_types = list(
-                IntelItem.objects.values("indicator_type")
-                .annotate(count=Count("id"))
-                .order_by("-count")[:5]
-            )
-            # Normalize None types for template friendliness
-            for row in intel_top_types:
-                row["indicator_type"] = row["indicator_type"] or "unknown"
+            last_item = IntelItem.objects.order_by("-created_at").first()
+            if last_item:
+                last_sync = last_item.created_at
 
-        # ---------- KPI: Total cases ----------
-        cases_total = 0
-        if Case is not None:
-            try:
-                cases_total = Case.objects.count()
-            except Exception:
-                cases_total = 0
+        # ---- AUDIT KPI: events in last 24h ----
+        audit_last_24h = 0
+        if AuditEntry is not None:
+            since_24h = now() - timedelta(hours=24)
+            audit_last_24h = AuditEntry.objects.filter(timestamp__gte=since_24h).count()
 
-        # ---------- Context for template ----------
+        # ---- Push into template ----
         ctx.update(
             {
-                # KPIs
+                # KPIs shown at the top
+                "total_cases": total_cases,
+                "open_cases": open_cases,
+                "ioc_count": ioc_count,
+
+                # Data for the charts
+                "cases_trend": cases_trend,
+                "severity_breakdown": severity_breakdown,
+
+                # Last intel sync timestamp
+                "last_sync": last_sync,
+
+                # Extra KPI
                 "kpi_audit_last_24h": audit_last_24h,
-                "kpi_intel_total": intel_total,
-                "kpi_cases_total": cases_total,
-                # Charts / series
-                "audit_timeseries": audit_timeseries,  # [{ts, count}, ...]
-                "intel_top_types": intel_top_types,    # [{indicator_type, count}, ...]
             }
         )
+
+        ctx["top_open_cases"] = top_open_cases
+        ctx["recent_iocs"] = recent_iocs
+
         return ctx

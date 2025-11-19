@@ -219,6 +219,29 @@ footer {
   gap: 0.5rem;
 }
 
+
+/* Make "Go to Intel" or any .btn-success use bright green */
+.btn-success {
+  background-color: #28a745 !important; /* Bootstrap green */
+  border-color: #28a745 !important;
+  color: #fff !important;
+}
+/* Optional: lighten on hover */
+.btn-success:hover {
+  background-color: #218838 !important;
+  border-color: #1e7e34 !important;
+  color: #fff !important;
+}
+
+/* Setting a fixed size for the source column in the intel tab */
+table.dataTable td:nth-child(5),
+table.dataTable th:nth-child(5) {
+  max-width: 120px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
 /* From Uiverse.io by Galahhad */ 
 .theme-switch {
   --toggle-size: 15px;
@@ -457,12 +480,36 @@ html.dark-mode .bg-secondary-subtle {
   border-color: #30363d !important;
 }
 
+/* Badges in dark mode */
+html.dark-mode .badge.bg-warning.text-dark {
+  background-color: #facc15 important;
+  color: #111827 !important;
+}
+
+html.dark-mode .badge-soft {
+  background: #1f2933;
+  color: #e5e7eb;
+  border-color: #374151;
+}
+
+/* Dark mode for .btn-success */
+html.dark-mode .btn-success {
+  background-color: #22c55e !important;
+  border-color: #15803d !important;
+  color: #ffffff !important;
+}
+
 /* Headings / links */
 html.dark-mode a { color: #58a6ff; }
 html.dark-mode h1, 
 html.dark-mode h2, 
 html.dark-mode h3, 
 html.dark-mode h4 { color: #e6edf3; }
+
+/* Force text-dark to become light in dark mode */
+html.dark-mode .text-dark {
+  color: #e6edf3 !important;
+}
 
 /* Navbar (you already have some styles, this ensures the base bg is dark) */
 html.dark-mode .navbar,
@@ -519,17 +566,4 @@ html.dark-mode .dataTables_wrapper .dataTables_filter label {
 }
 html.dark-mode .dataTables_wrapper .dataTables_paginate .paginate_button {
   color: #c9d1d9 !important;
-}
-
-/* Make "Go to Intel" or any .btn-success use bright green */
-.btn-success {
-  background-color: #28a745 !important; /* Bootstrap green */
-  border-color: #28a745 !important;
-  color: #fff !important;
-}
-/* Optional: lighten on hover */
-.btn-success:hover {
-  background-color: #218838 !important;
-  border-color: #1e7e34 !important;
-  color: #fff !important;
 }

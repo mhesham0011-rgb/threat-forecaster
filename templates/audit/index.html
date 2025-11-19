@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="container py-4">
-  <h1 class="mb-3">Audit</h1>
+<div class="container py-4" style="z-index: 1;">
+  <h2 class="mb-3">Audit</h2>
 
   <div class="d-flex gap-2 mb-3">
     <input id="q" class="form-control" placeholder="Search message, action or target" style="max-width:360px">
@@ -14,7 +14,6 @@
     </select>
     <a id="exportCsvBtn" class="btn btn-outline-primary" href="?">Export CSV</a>
   </div>
-
   <table id="audit-table" class="table table-striped table-hover align-middle">
     <thead>
       <tr>

@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
-from .views import TacticViewSet, TechniqueViewSet, CTIEventViewSet, DetectionRuleViewSet, taxonomy_index, taxonomy_delete, taxonomy_list, taxonomy_save
+from .views import TacticViewSet, TechniqueViewSet, CTIEventViewSet, DetectionRuleViewSet, taxonomy_index, taxonomy_delete, taxonomy_list, taxonomy_save, live_summary
 from . import views
 
 app_name = "taxonomy"
@@ -31,4 +31,6 @@ urlpatterns = [
         views.TechniqueStatsSummaryView.as_view(),
         name="technique-stats-summary",
     ),
+    path("live/summary/", live_summary, name="live-summary"),
+    path("terms/", views.taxonomy_terms_api, name="taxonomy-terms-api"),
 ]

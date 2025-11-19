@@ -4,12 +4,33 @@
 <div class="container py-4">
   <h2 class="mb-3">Taxonomy</h2>
 
+  <header>
+    <div class="d-flex align-items-center mb-2">
+      <span id="badge-attack"   class="badge me-2">ATT&CK: —</span>
+      <span id="badge-cti"      class="badge me-2">CTI: —</span>
+      <span id="badge-coverage" class="badge me-3">Coverage: —</span>
+
+      <span id="badge-tax-status" class="badge bg-secondary">
+        Status: -
+      </span>
+      <button id="btn-refresh" class="btn btn-outline-light btn-sm ms-2">Refresh now</button>
+    </div>
+    <div id="hot-techniques" class="mt-3"></div>
+
+    <div id="status-extra" class="small text-muted mb-2 bg-light dark-mode"></div>
+    <div id="hot-techniques" class="mt-3"></div>
+  </header>
+
   <form class="row g-2 align-items-center mb-3" id="filter-form" method="get">
     <div class="col-auto">
       <select name="vocab" id="vocab" class="form-select">
-        {% for v,label in vocabs %}
-          <option value="{{ v }}" {% if v == current_vocab %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
+        <option value="">-- Select vocab --</option>
+        <option value="attack.technique"
+            {% if request.GET.vocab == "attack.technique" or not request.GET.vocab %}
+            selected
+            {% endif %}>
+          ATT&CK Techniques
+        </option>
       </select>
     </div>
     <div class="col-auto">
@@ -36,6 +57,7 @@
       <tbody></tbody>
     </table>
   </div>
+  <div id="new-techniques-indicator" class="mt-3"></div>
 </div>
 
 <!-- Modal -->
@@ -81,44 +103,54 @@
 </div>
 
 <script>
-(function() {
+(function () {
   const tableBody = document.querySelector("#tax-table tbody");
   const vocabSel  = document.getElementById("vocab");
   const queryInp  = document.getElementById("q");
   const addBtn    = document.getElementById("btn-add");
 
   async function loadRows() {
-    const params = new URLSearchParams({
-      vocab: vocabSel.value,
-      q: queryInp.value || ""
-    });
-    const res = await fetch("{% url 'taxonomy:technique-list' %}?" + params.toString(), {headers:{'X-Requested-With':'XMLHttpRequest'}});
-    const json = await res.json();
-    tableBody.innerHTML = "";
-    json.rows.forEach(r => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td><code>${r.key}</code></td>
-        <td>
-          ${r.color ? `<span class="badge bg-${r.color} me-1">&nbsp;</span>` : ""}
-          ${r.label}
-        </td>
-        <td>${r.order}</td>
-        <td>${r.color || ""}</td>
-        <td>${r.enabled ? "Yes" : "No"}</td>
-        <td>
-          <button class="btn btn-sm btn-outline-primary me-1" data-edit='${JSON.stringify(r)}'>Edit</button>
-          <button class="btn btn-sm btn-outline-danger" data-del='${r.id}'>Delete</button>
-        </td>`;
-      tableBody.appendChild(tr);
-    });
+    try {
+      const params = new URLSearchParams({
+        vocab: vocabSel ? (vocabSel.value || "") : "",
+        q: queryInp ? (queryInp.value || "") : ""
+      });
+
+      const res  = await fetch("/taxonomy/terms/?" + params.toString(), {
+        headers: {"X-Requested-With": "XMLHttpRequest"}
+      });
+      if (!res.ok) throw new Error("Failed to load rows: " + res.status);
+
+      const json = await res.json();
+
+      tableBody.innerHTML = "";
+      (json.rows || []).forEach(r => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><code>${r.key}</code></td>
+          <td>
+            ${r.color ? `<span class="badge bg-${r.color} me-1">&nbsp;</span>` : ""}
+            ${r.label}
+          </td>
+          <td>${r.order}</td>
+          <td>${r.color || ""}</td>
+          <td>${r.enabled ? "Yes" : "No"}</td>
+          <td>
+            <button class="btn btn-sm btn-outline-primary me-1" data-edit='${JSON.stringify(r)}'>Edit</button>
+            <button class="btn btn-sm btn-outline-danger" data-del='${r.id}'>Delete</button>
+          </td>`;
+        tableBody.appendChild(tr);
+      });
+    } catch (err) {
+      console.error("loadRows error:", err);
+    }
   }
 
   // open modal for add
   addBtn.addEventListener("click", () => {
     document.getElementById("termForm").reset();
     document.getElementById("term-id").value = "";
-    document.getElementById("term-vocab").value = vocabSel.value;
+    document.getElementById("term-vocab").value = vocabSel ? vocabSel.value : "";
     new bootstrap.Modal(document.getElementById("termModal")).show();
   });
 
@@ -126,10 +158,11 @@
   tableBody.addEventListener("click", (e) => {
     const edit = e.target.getAttribute("data-edit");
     const del  = e.target.getAttribute("data-del");
+
     if (edit) {
       const r = JSON.parse(edit);
       document.getElementById("term-id").value = r.id;
-      document.getElementById("term-vocab").value = vocabSel.value;
+      document.getElementById("term-vocab").value = vocabSel ? vocabSel.value : "";
       document.getElementById("term-key").value = r.key;
       document.getElementById("term-label").value = r.label;
       document.getElementById("term-order").value = r.order;
@@ -140,9 +173,9 @@
       if (confirm("Delete this term?")) {
         const form = new FormData();
         form.append("id", del);
-        fetch("{% url 'taxonomy:delete' %}", {
+        fetch("/taxonomy/delete/", {
           method: "POST",
-          headers: {"X-CSRFToken": "{{ csrf_token }}"},
+          headers: {"X-CSRFToken": "AQWlV00QmDIcKOKnAninbVUrNScYzCO2K2SK80b4ekareiRD0nQTjsSYvapFEZps"},
           body: form
         }).then(loadRows);
       }
@@ -153,9 +186,9 @@
   document.getElementById("termForm").addEventListener("submit", (e) => {
     e.preventDefault();
     const form = new FormData(e.target);
-    fetch("{% url 'taxonomy:save' %}", {
+    fetch("/taxonomy/save/", {
       method: "POST",
-      headers: {"X-CSRFToken": "{{ csrf_token }}"},
+      headers: {"X-CSRFToken": "AQWlV00QmDIcKOKnAninbVUrNScYzCO2K2SK80b4ekareiRD0nQTjsSYvapFEZps"},
       body: form
     }).then(r => r.json()).then(j => {
       if (j.ok) {
@@ -167,16 +200,169 @@
     });
   });
 
-  // initial + filter submit
+  // filter form
   document.getElementById("filter-form").addEventListener("submit", (e) => {
     e.preventDefault();
     const url = new URL(window.location);
-    url.searchParams.set("vocab", vocabSel.value);
+    url.searchParams.set("vocab", vocabSel ? vocabSel.value : "");
     history.replaceState({}, "", url);
     loadRows();
   });
 
+  // ---- live summary + “hot techniques” helpers ----
+
+  const fmt = dt => dt ? new Date(dt).toLocaleString() : "—";
+
+  function colorBadge(id, iso, maxHours) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove("bg-danger","bg-warning","bg-success");
+    if (!iso) { el.classList.add("bg-danger"); return; }
+    const ageH = (Date.now() - new Date(iso).getTime()) / 36e5;
+    el.classList.add(
+      ageH <= maxHours     ? "bg-success" :
+      ageH <= maxHours * 2 ? "bg-warning" :
+                              "bg-danger"
+    );
+  }
+
+  async function loadSummary() {
+    try {
+      const res = await fetch("/taxonomy/live/summary/");
+      if (!res.ok) throw new Error("summary HTTP " + res.status);
+      const s   = await res.json();
+
+      const badgeAttack   = document.getElementById("badge-attack");
+      const badgeCti      = document.getElementById("badge-cti");
+      const badgeCoverage = document.getElementById("badge-coverage");
+
+      if (badgeAttack)   badgeAttack.textContent   = `ATT&CK: ${fmt(s.attack_last_success)}`;
+      if (badgeCti)      badgeCti.textContent      = `CTI: ${fmt(s.cti_last_success)}`;
+      if (badgeCoverage) badgeCoverage.textContent = `Coverage: ${fmt(s.coverage_last_success)}`;
+
+      colorBadge("badge-attack",   s.attack_last_success,   48);
+      colorBadge("badge-cti",      s.cti_last_success,       2);
+      colorBadge("badge-coverage", s.coverage_last_success, 12);
+
+      // Status badge + details
+      const statusBadge = document.getElementById("badge-tax-status");
+      const statusExtra = document.getElementById("status-extra");
+      if (statusBadge) {
+        statusBadge.classList.remove("bg-success","bg-warning","bg-danger","bg-secondary");
+
+        if (s.last_run_started === null) {
+          statusBadge.classList.add("bg-secondary");
+          statusBadge.textContent = "Status: -";
+          if (statusExtra) statusExtra.textContent = "";
+        } else if (s.last_run_success) {
+          statusBadge.classList.add("bg-success");
+          statusBadge.textContent = "Status: OK";
+          if (statusExtra) {
+            statusExtra.textContent =
+              `Last refresh: ${fmt(s.last_run_finished)} · ` +
+              `${s.last_run_new_count} new techniques in last run`;
+          }
+        } else {
+          statusBadge.classList.add("bg-danger");
+          statusBadge.textContent = "Status: FAILED";
+          if (statusExtra) {
+            statusExtra.textContent =
+              `Last failure: ${fmt(s.last_run_started)} · ${s.last_run_error || ""}`;
+          }
+        }
+      }
+
+      // New techniques in last 24h
+      const newBox = document.getElementById("new-techniques-indicator");
+      if (newBox) {
+        if ((s.new_attack_count_24h || 0) > 0) {
+          const ids = (s.new_attack_ids_24h || []).slice(0, 10);
+          newBox.innerHTML = `
+            <div class="alert alert-info mb-0">
+              <strong>${s.new_attack_count_24h}</strong> new ATT&CK techniques
+              in the last 24h:
+              ${ids.map(id => `<code class="me-1">${id}</code>`).join(" ")}
+              ${s.new_attack_count_24h > ids.length ? "…" : ""}
+            </div>`;
+        } else {
+          newBox.innerHTML = "";
+        }
+      }
+    } catch (err) {
+      console.error("loadSummary error:", err);
+    }
+  }
+
+  async function loadHotTechniques() {
+    try {
+      const res  = await fetch("/taxonomy/techniques/stats/?ordering=-sightings_7d");
+      if (!res.ok) throw new Error("hot techniques HTTP " + res.status);
+      const data = await res.json();
+      const top  = (data.results || data.techniques || [])
+        .sort((a,b)=> (b.sightings_7d||0)-(a.sightings_7d||0))
+        .slice(0,10);
+
+      const html = top.length === 0 ? "" : `
+        <h5 class="mb-2">Most Active Techniques (7d)</h5>
+        <div class="table-responsive">
+          <table class="table table-sm table-dark align-middle">
+            <thead>
+              <tr>
+                <th>ATT&CK</th><th>Technique</th><th>Tactic</th>
+                <th class="text-end">7d</th>
+                <th class="text-end">30d</th>
+                <th>Last seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${top.map(t => `
+                <tr>
+                  <td><code>${t.attack_id}</code></td>
+                  <td>${t.technique_name || ""}</td>
+                  <td>${t.tactic_attack_id || ""}</td>
+                  <td class="text-end">${t.sightings_7d ?? 0}</td>
+                  <td class="text-end">${t.sightings_30d ?? 0}</td>
+                  <td>${t.last_seen ? new Date(t.last_seen).toLocaleString() : "—"}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>`;
+      document.getElementById("hot-techniques").innerHTML = html;
+    } catch (err) {
+      console.error("loadHotTechniques error:", err);
+    }
+  }
+
+  // manual refresh button triggers background job, then reloads summary/hot table
+  document.getElementById("btn-refresh").addEventListener("click", async () => {
+    try {
+      await fetch("/taxonomy/live/refresh/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": "AQWlV00QmDIcKOKnAninbVUrNScYzCO2K2SK80b4ekareiRD0nQTjsSYvapFEZps"
+        },
+        body: JSON.stringify({ what: "cti" })
+      });
+      setTimeout(() => {
+        loadSummary();
+        loadHotTechniques();
+      }, 4000);
+    } catch (err) {
+      console.error("manual refresh error:", err);
+    }
+  });
+
+  // initial kicks + timers
   loadRows();
+  loadSummary();
+  loadHotTechniques();
+
+  setInterval(loadRows,          60000);
+  setInterval(loadSummary,       30000);
+  setInterval(loadHotTechniques, 60000);
 })();
 </script>
+
 {% endblock %}

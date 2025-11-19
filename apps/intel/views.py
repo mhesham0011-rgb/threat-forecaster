@@ -441,15 +441,27 @@ def fetch_from_virustotal():
     results = []
     for ip in suspicious_ips:
         url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip}"
-        resp = requests.get(
-            url,
-            headers={"x-apikey": api_key}
-        )
 
-        if resp.status_code != 200:
+        try:
+            resp = requests.get(
+                url,
+                headers={"x-apikey": api_key},
+                timeout=10,
+            )
+        except requests.RequestException as exc:
+            logger.warning("VirusTotal request failed for %s: %s", ip, exc)
             continue
 
-        j = resp.json()
+        if resp.status_code != 200:
+            logger.warning("VirusTotal status %s for %s", resp.status_code, ip)
+            continue
+
+        try:
+            j = resp.json()
+        except ValueError:
+            logger.warning("VirusTotal non-JSON response for %s", ip)
+            continue
+
         data = j.get("data", {})
         attrs = data.get("attributes", {})
 
@@ -459,23 +471,23 @@ def fetch_from_virustotal():
             sev = 4
         elif repscore >= 5:
             sev = 3
-        elif repscore >= 2:
+        elif repscore >= 1:
             sev = 2
         else:
             sev = 1
 
         # we can say confidence is "High" if multiple vendors flag it
-        confidence_label = "High" if repscore >= 5 else "Medium" if repscore >= 2 else "Low"
+        confidence_label = attrs.get("reputation", 0)
 
         # VT may not give first_seen easily in this endpoint, so we leave blank or "N/A"
-    results.append({
-        "value": ip,
-        "indicator_type": "ip",
-        "severity": sev,
-        "confidence": map_confidence_to_score(confidence_label),
-        "source": "VirusTotal",
-        "first_seen": "",  # VT didn't give us first_seen cleanly
-        "last_seen": timezone.now().strftime("%Y-%m-%d %H:%M"),
+        results.append({
+            "value": ip,
+            "indicator_type": "ip",
+            "severity": sev,
+            "confidence": map_confidence_to_score(confidence_label),
+            "source": "VirusTotal",
+            "first_seen": "",  # VT didn't give us first_seen cleanly
+            "last_seen": timezone.now().strftime("%Y-%m-%d %H:%M"),
     })
 
     return results
@@ -490,18 +502,31 @@ def fetch_from_otx():
         return []
 
     url = "https://otx.alienvault.com/api/v1/pulses/subscribed"
-    resp = requests.get(
-        url,
-        headers={"X-OTX-API-KEY": api_key},
-        params={"limit": 5}   # don't explode the UI
-    )
 
-    if resp.status_code != 200:
+    try:
+        resp = requests.get(
+            url,
+            headers={"X-OTX-API-KEY": api_key},
+            params={"limit": 3},   # don't explode the UI
+            timeout=10,
+        )
+    except requests.RequestException as exc:
+        logger.warning("OTX fetch failed: %s", exc)
         return []
 
-    data = resp.json()
+    if resp.status_code != 200:
+        logger.warning("OTX status %s: %s", resp.status_code, resp.text[:200])
+        return []
+
+    try:
+        data = resp.json()
+    except ValueError:
+        logger.warning("OTX returned non-JSON")
+        return []
+
     items = []
-    for pulse in data.get("results", []):
+    pulses = data.get("results", [])
+    for pulse in pulses:
         pulse_name = pulse.get("name", "OTX Pulse")
         indicators = pulse.get("indicators", [])
 
@@ -510,6 +535,9 @@ def fetch_from_otx():
             ind_type = i.get("type")  # 'IPv4', 'domain', 'URL', 'FileHash-SHA256', etc
             first_seen = pulse.get("created", "")
             last_seen = pulse.get("modified", "")
+
+            if not ind_val or not ind_type:
+                continue
 
             # map OTX type -> your indicator_type
             if "IP" in ind_type.upper():

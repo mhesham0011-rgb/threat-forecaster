@@ -7,7 +7,7 @@
 
   <!-- Header -->
   <div class="d-flex align-items-center justify-content-between mb-3">
-    <h1 class="h3 mb-0 text-body">Threat Intelligence</h1>
+    <h2 class="mb-3">Threat Intelligence</h2>
     <div class="d-flex gap-2">
       <div id="intel-export-slot"></div>
       <button id="fetch-btn" class="btn btn-outline-secondary btn-sm">Fetch from Sources</button>
@@ -293,6 +293,12 @@
           fetchBtn.disabled = false;
           fetchBtn.textContent = orig;
         }
+        fetch("/intel/fetch/",{
+          method: "POST",
+          headers: {
+            "X-CSRFToken":csrftoken,
+          }
+        })
       });
     }
   });

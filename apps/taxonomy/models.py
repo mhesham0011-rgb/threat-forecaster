@@ -1,4 +1,31 @@
 from django.db import models
+from django.utils.timezone import now
+
+class SyncStatus(models.Model):
+    """
+    Tracks last successful sync for different data domains.
+    key choices: 'attack', 'cti', 'coverage'
+    """
+
+    key = models.CharField(max_length=32, unique=True)
+    last_started = models.DateTimeField(null=True, blank=True)
+    last_success = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True)
+
+    def mark_started(self):
+        from django.utils.timezone import now
+        self.last_started = now()
+        self.save(update_fields=["last_started"])
+
+    def mark_success(self):
+        from django.utils.timezone import now
+        self.last_success = now()
+        self.last_error = ""
+        self.save(update_fields=["last_success", "last_error"])
+
+    def mark_error(self, msg: str):
+        self.last_error = msg[:2000]
+        self.save(update_fields=["last_error"])
 
 class TaxonomyTerm(models.Model):
 	"""
@@ -60,6 +87,8 @@ class TechniqueStat(models.Model):
 	coverage_score = models.FloatField(default=0.0)
 	last_coverage_sync = models.DateTimeField(null=True, blank=True)
 
+	updated_at = models.DateTimeField(auto_now=True)
+
 	def __str__(self):
 		return f"Stats for {self.technique.attack_id}"
 
@@ -81,6 +110,29 @@ class CTIEvent(models.Model):
 
 	def __str__(self):
 		return f"{self.source}:{self.external_id} - {self.title}"
+
+class TaxonomyRefreshRun(models.Model):
+	"""
+	One record per taxonomy refresh attempt (CTI/ATT&CK/coverage).
+	"""
+
+	started_at = models.DateTimeField(default=now, db_index=True)
+	finished_at = models.DateTimeField(null=True, blank=True)
+	success = models.BooleanField(default=False)
+	attempts = models.PositiveSmallIntegerField(default=1)
+
+	# 'all', 'attack', 'cti', 'coverage' etc.
+	scope = models.CharField(max_length=32, default="all")
+
+	error_message = models.TextField(blank=True)
+
+	# MITRE diffs (store ATT&CK IDs)
+	new_attack_ids = models.JSONField(default=list, blank=True)
+	removed_attack_ids = models.JSONField(default=list, blank=True)
+
+	def __str__(self):
+		status = "Ok" if self.success else "FAIL"
+		return f"{self.started_at:%Y-%m-%d %H:%M} [{status}] ({self.scope})"
 
 class TechniqueSighting(models.Model):
 	"""

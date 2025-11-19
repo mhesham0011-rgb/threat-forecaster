@@ -1,8 +1,9 @@
-# apps/intel/fetchers.py
 import requests
+
 from django.utils.timezone import make_aware
 from datetime import datetime
 from django.conf import settings
+
 from .models import IntelItem
 
 def parse_dt(val):
@@ -47,7 +48,6 @@ def fetch_abuseipdb(ip_list, user):
         score = data.get("abuseConfidenceScore")  # 0-100
         last = data.get("lastReportedAt")         # timestamp string
 
-        # You decide what counts as "bad enough"
         if score and int(score) >= 50:
             item = IntelItem.objects.create(
                 value=ip,

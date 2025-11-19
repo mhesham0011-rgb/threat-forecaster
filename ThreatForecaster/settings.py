@@ -20,6 +20,19 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 env = environ.Env()
 environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 
+ADMINS = [
+    ("Mohamed Shaheen","m.hesham0011@gmail.com"),
+]
+
+SERVER_EMAIL = "threatforecaster@your-domain.com"
+
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.your-provider.com"
+EMAIL_PORT = 587
+EMAIL_HOST_USER = "..."
+EMAIL_HOST_PASSWORD = "..."
+EMAIL_USE_TLS = True
+
 SECRET_KEY = env('DJANGO_SECRET_KEY')
 DEBUG = env.bool('DJANGO_DEBUG', False)
 ALLOWED_HOSTS = env.list('DJANGO_ALLOWED_HOSTS', default=["localhost","127.0.0.1", "threatforecaster.com","www.threatforecaster.com","141.145.146.16"])
@@ -175,6 +188,11 @@ SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 
 CELERY_BROKER_POOL_URL = env('REDIS_URL')
 CELERY_RESULT_BACKEND = env('REDIS_URL')
+CELERY_BEAT_SCHEDULE = {
+    "attack-nightly":   {"task": "taxonomy.tasks.sync_attack_job", "schedule": 60*60*24},
+    "cti-quarterhour":  {"task": "taxonomy.tasks.ingest_cti_job",  "schedule": 60*15},
+    "coverage-6h":      {"task": "taxonomy.tasks.coverage_sync_job","schedule": 60*60*6},
+}
 
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",

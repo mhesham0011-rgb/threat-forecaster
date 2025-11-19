@@ -1,5 +1,5 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic import ListView, CreateView, UpdateView
+from django.views.generic import ListView, CreateView, UpdateView, DetailView
 from django.shortcuts import get_object_or_404, render, redirect
 from django.http import JsonResponse, Http404
 from django.urls import reverse_lazy
@@ -60,6 +60,9 @@ class CaseCreateView(LoginRequiredMixin, CreateView):
         messages.success(self.request, "Case created successfully.")
         return super().form_valid(form)
 
+class CaseDetailView(DetailView):
+	model = Case
+	template_name = "cases/detail.html"
 
 class CaseUpdateView(LoginRequiredMixin, UpdateView):
     model = Case

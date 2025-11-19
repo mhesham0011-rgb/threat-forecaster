@@ -3,6 +3,8 @@ from django.contrib.auth.decorators import login_required
 
 from .views import CaseListView, CaseCreateView, case_detail_json, saved_search_list, saved_search_create
 
+from . import views
+
 app_name = "cases"
 
 urlpatterns = [
@@ -12,4 +14,5 @@ urlpatterns = [
 
     path("saved-searches/", saved_search_list, name="cases_saved_search_list"),
     path("saved-searches/new/", saved_search_create, name="cases_saved_search_create"),
+    path("<int:pk>/", views.CaseDetailView.as_view(), name="detail"),
 ]
